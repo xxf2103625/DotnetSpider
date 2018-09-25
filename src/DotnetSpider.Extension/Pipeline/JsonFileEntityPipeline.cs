@@ -1,41 +1,73 @@
 ﻿using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text;
 using DotnetSpider.Core;
 using DotnetSpider.Extension.Model;
+using DotnetSpider.Extraction.Model;
 
 namespace DotnetSpider.Extension.Pipeline
 {
-	public class JsonFileEntityPipeline : BaseEntityPipeline
+	/// <summary>
+	/// 把解析到的爬虫实体数据序列化成JSON并存到文件中
+	/// </summary>
+	public class JsonFileEntityPipeline : EntityPipeline
 	{
-		private readonly object _locker = new object();
-		private string _dataFolder;
+		private readonly Dictionary<string, StreamWriter> _writers = new Dictionary<string, StreamWriter>();
 
-		public override void InitPipeline(ISpider spider)
+		/// <summary>
+		/// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+		/// </summary>
+		public override void Dispose()
 		{
-			base.InitPipeline(spider);
-
-			lock (_locker)
+			base.Dispose();
+			foreach (var writer in _writers)
 			{
-				_dataFolder = Path.Combine(Env.BaseDirectory, spider.Identity, "entityJson");
+				writer.Value.Dispose();
 			}
 		}
 
-		public override int Process(string entityName, List<dynamic> datas)
+		/// <summary>
+		/// 把解析到的爬虫实体数据序列化成JSON并存到文件中
+		/// </summary>
+		/// <param name="entityName">爬虫实体类的名称</param>
+		/// <param name="datas">实体类数据</param>
+		/// <param name="sender">调用方</param>
+		/// <returns>最终影响结果数量(如数据库影响行数)</returns>
+		[MethodImpl(MethodImplOptions.Synchronized)]
+		protected override int Process(IEnumerable<IBaseEntity> datas, dynamic sender = null)
 		{
-			lock (_locker)
+			if (datas == null || datas.Count() == 0)
 			{
-				var fileInfo = PrepareFile(Path.Combine(_dataFolder, $"{entityName}.data"));
+				return 0;
+			}
 
-				foreach (var entry in datas)
+			var tableInfo = new TableInfo(datas.First().GetType());
+
+			StreamWriter writer;
+			var identity = GetIdentity(sender);
+			var dataFolder = Path.Combine(Env.BaseDirectory, "json", identity);
+			var jsonFile = Path.Combine(dataFolder, $"{tableInfo.Schema.FullName}.json");
+			if (_writers.ContainsKey(jsonFile))
+			{
+				writer = _writers[jsonFile];
+			}
+			else
+			{
+				if (!Directory.Exists(dataFolder))
 				{
-					File.AppendAllText(fileInfo.Name, entry.ToString());
+					Directory.CreateDirectory(dataFolder);
 				}
-				return datas.Count;
+				writer = new StreamWriter(File.OpenWrite(jsonFile), Encoding.UTF8);
+				_writers.Add(jsonFile, writer);
 			}
-		}
 
-		public override void AddEntity(IEntityDefine type)
-		{
+			foreach (var entry in datas)
+			{
+				writer.WriteLine(entry.ToString());
+			}
+			return datas.Count();
 		}
 	}
 }

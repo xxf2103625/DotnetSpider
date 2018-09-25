@@ -1,63 +1,47 @@
-﻿using DotnetSpider.Core.Infrastructure;
-using NLog;
-using System.IO;
-#if NET_CORE
-#endif
+﻿using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
 
 namespace DotnetSpider.Core.Pipeline
 {
-	public abstract class BasePipeline : IPipeline
+	/// <summary>
+	/// 数据管道抽象, 通过数据管道把解析的数据存到不同的存储中(文件、数据库）
+	/// </summary>
+	public abstract class BasePipeline : Named, IPipeline
 	{
-		protected static readonly ILogger Logger = LogCenter.GetLogger();
-		protected string BasePath { get; set; }
+		/// <summary>
+		/// 日志接口
+		/// </summary>
+		public ILogger Logger { get; set; }
 
-		public ISpider Spider { get; protected set; }
+		/// <summary>
+		/// 处理页面解析器解析到的数据结果
+		/// </summary>
+		/// <param name="resultItems">数据结果</param>
+		/// <param name="logger">日志接口</param>
+		/// <param name="sender">调用方</param>
+		public abstract void Process(IList<ResultItems> resultItems, dynamic sender = null);
 
-		public virtual void InitPipeline(ISpider spider)
-		{
-			Spider = spider;
-		}
-
-		public abstract void Process(params ResultItems[] resultItems);
-
+		/// <summary>
+		/// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+		/// </summary>
 		public virtual void Dispose()
 		{
 		}
 
-		public static FileInfo PrepareFile(string fullName)
+		protected string GetIdentity(dynamic sender)
 		{
-			CheckAndMakeParentDirecotry(fullName);
-			return new FileInfo(fullName);
-		}
-
-		public static DirectoryInfo PrepareDirectory(string fullName)
-		{
-			return new DirectoryInfo(CheckAndMakeParentDirecotry(fullName));
-		}
-
-		protected void SetPath(string path)
-		{
-			if (!path.EndsWith(Env.PathSeperator))
+			if (sender == null)
 			{
-				path += Env.PathSeperator;
+				throw new SpiderException("Sender should not be null.");
 			}
-
-			BasePath = Path.Combine(Env.BaseDirectory, path);
-		}
-
-		private static string CheckAndMakeParentDirecotry(string fullName)
-		{
-			string path = Path.GetDirectoryName(fullName);
-
-			if (path != null)
+			try
 			{
-				DirectoryInfo directory = new DirectoryInfo(path);
-				if (!directory.Exists)
-				{
-					directory.Create();
-				}
+				return sender.Identity;
 			}
-			return path;
+			catch
+			{
+				throw new SpiderException("Sender should be a IIdentity object.");
+			}
 		}
 	}
 }

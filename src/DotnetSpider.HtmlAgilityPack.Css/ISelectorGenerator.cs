@@ -1,4 +1,4 @@
-namespace DotnetSpider.HtmlAgilityPack
+namespace DotnetSpider.HtmlAgilityPack.Css
 {
     /// <summary>
     /// Represent an implementation that is responsible for generating

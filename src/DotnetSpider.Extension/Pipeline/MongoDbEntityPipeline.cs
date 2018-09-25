@@ -1,43 +1,48 @@
 ﻿using System.Collections.Generic;
-using DotnetSpider.Extension.Model;
 using MongoDB.Bson;
 using MongoDB.Driver;
-using System.Collections.Concurrent;
 using System;
-using DotnetSpider.Core.Infrastructure;
-using NLog;
 using DotnetSpider.Extension.Infrastructure;
+using DotnetSpider.Extraction.Model;
+using DotnetSpider.Downloader;
+using System.Linq;
+using DotnetSpider.Extension.Model;
 
 namespace DotnetSpider.Extension.Pipeline
 {
-	public class MongoDbEntityPipeline : BaseEntityPipeline
+	/// <summary>
+	/// 把解析到的爬虫实体数据存到MongoDb中
+	/// </summary>
+	public class MongoDbEntityPipeline : EntityPipeline
 	{
-		private readonly ConcurrentDictionary<string, IMongoCollection<BsonDocument>> _collections = new ConcurrentDictionary<string, IMongoCollection<BsonDocument>>();
+		private readonly MongoClient _client;
 
-		private string ConnectString { get; }
-
+		/// <summary>
+		/// 构造方法
+		/// </summary>
+		/// <param name="connectString">连接字符串</param>
 		public MongoDbEntityPipeline(string connectString)
 		{
-			ConnectString = connectString;
+			_client = new MongoClient(connectString);
 		}
 
-		public override void AddEntity(IEntityDefine metadata)
+		/// <summary>
+		/// 把解析到的爬虫实体数据存到MongoDb中
+		/// </summary>
+		/// <param name="datas">数据</param>
+		/// <param name="sender">调用方</param>
+		/// <returns>最终影响结果数量(如数据库影响行数)</returns>
+		protected override int Process(IEnumerable<IBaseEntity> datas, dynamic sender = null)
 		{
-			if (metadata.TableInfo == null)
+			if (datas == null)
 			{
-				Logger.MyLog(Spider?.Identity, $"Schema is necessary, skip {GetType().Name} for {metadata.Name}.", LogLevel.Warn);
-				return;
+				return 0;
 			}
+			var tableInfo = new TableInfo(datas.First().GetType());
+			var db = _client.GetDatabase(tableInfo.Schema.Database);
+			var collection = db.GetCollection<BsonDocument>(tableInfo.Schema.FullName);
 
-			MongoClient client = new MongoClient(ConnectString);
-			var db = client.GetDatabase(metadata.TableInfo.Database);
-
-			_collections.TryAdd(metadata.Name, db.GetCollection<BsonDocument>(metadata.TableInfo.CalculateTableName()));
-		}
-
-		public override int Process(string entityName, List<dynamic> datas)
-		{
-			if (_collections.TryGetValue(entityName, out var collection))
+			var action = new Action(() =>
 			{
 				List<BsonDocument> reslut = new List<BsonDocument>();
 				foreach (var data in datas)
@@ -47,8 +52,16 @@ namespace DotnetSpider.Extension.Pipeline
 				}
 				reslut.Add(BsonDocument.Create(DateTime.Now));
 				collection.InsertMany(reslut);
+			});
+			if (DbConnectionExtensions.UseNetworkCenter)
+			{
+				NetworkCenter.Current.Execute("db", action);
 			}
-			return datas.Count;
+			else
+			{
+				action();
+			}
+			return datas.Count();
 		}
 	}
 }

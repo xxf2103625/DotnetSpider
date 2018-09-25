@@ -1,300 +1,325 @@
 ﻿using System;
-using System.Data.Common;
-using System.Data.SqlClient;
+using DotnetSpider.Extension.Infrastructure;
 using System.Text;
 using System.Linq;
+using System.Data;
+using System.Data.Common;
+using System.Data.SqlClient;
+using DotnetSpider.Extraction.Model;
+using DotnetSpider.Extraction.Model.Attribute;
+using Microsoft.Extensions.Logging;
 using DotnetSpider.Extension.Model;
-using System.Configuration;
-using DotnetSpider.Core;
-using DotnetSpider.Core.Infrastructure;
-using System.Collections.Generic;
-using DotnetSpider.Core.Infrastructure.Database;
 
 namespace DotnetSpider.Extension.Pipeline
 {
-	public class SqlServerEntityPipeline : BaseEntityDbPipeline
+	/// <summary>
+	/// 把解析到的爬虫实体数据存到SqlServer中
+	/// </summary>
+	public class SqlServerEntityPipeline : DbEntityPipeline
 	{
-		public SqlServerEntityPipeline(string connectString = null) : base(connectString)
+		/// <summary>
+		/// 构造方法
+		/// </summary>
+		/// <param name="connectString">数据库连接字符串, 如果为空框架会尝试从配置文件中读取</param>
+		/// <param name="pipelineMode">数据管道模式</param>
+		public SqlServerEntityPipeline(string connectString = null, PipelineMode pipelineMode = PipelineMode.InsertAndIgnoreDuplicate) : base(connectString, pipelineMode)
 		{
-			DefaultPipelineModel = PipelineMode.Insert;
 		}
 
-		protected virtual DbParameter CreateDbParameter(string name, object value)
+		private string GenerateCreateDatabaseSql(TableInfo tableInfo, string serverVersion)
 		{
-			if (value == null)
+			var database = GetDatabaseName(tableInfo);
+			if (string.IsNullOrWhiteSpace(database))
 			{
-				value = DBNull.Value;
+				return "SELECT CURRENT_TIMESTAMP";
 			}
-			return new SqlParameter(name, value);
-		}
-
-		private string GenerateCreateDatabaseSql(EntityAdapter adapter, string serverVersion)
-		{
 			string version = serverVersion.Split('.')[0];
 			switch (version)
 			{
 				case "11":
 					{
-						return $"USE master; IF NOT EXISTS(SELECT * FROM sysdatabases WHERE name='{adapter.Table.Database}') CREATE DATABASE {adapter.Table.Database};";
+						return $"USE master; IF NOT EXISTS(SELECT * FROM sysdatabases WHERE name='{database}') CREATE DATABASE {database};";
 					}
 				default:
 					{
-						return $"USE master; IF NOT EXISTS(SELECT * FROM sys.databases WHERE name='{adapter.Table.Database}') CREATE DATABASE {adapter.Table.Database};";
+						return $"USE master; IF NOT EXISTS(SELECT * FROM sys.databases WHERE name='{database}') CREATE DATABASE {database};";
 					}
 			}
 		}
 
-		private string GenerateIfDatabaseExistsSql(EntityAdapter adapter, string serverVersion)
+		private string GenerateIfDatabaseExistsSql(TableInfo tableInfo, string serverVersion)
 		{
+			var database = GetDatabaseName(tableInfo);
+			if (string.IsNullOrWhiteSpace(database))
+			{
+				return "SELECT COUNT(CURRENT_TIMESTAMP)";
+			}
 			string version = serverVersion.Split('.')[0];
 			switch (version)
 			{
 				case "11":
 					{
-						return $"SELECT COUNT(*) FROM sysdatabases WHERE name='{adapter.Table.Database}'";
+						return $"SELECT COUNT(*) FROM sysdatabases WHERE name='{database}'";
 					}
 				default:
 					{
-						return $"SELECT COUNT(*) FROM sys.databases WHERE name='{adapter.Table.Database}'";
+						return $"SELECT COUNT(*) FROM sys.databases WHERE name='{database}'";
 					}
 			}
 		}
 
-		private string GenerateCreateTableSql(EntityAdapter adapter)
+		private string GenerateCreateTableSql(TableInfo tableInfo)
 		{
-			var tableName = adapter.Table.CalculateTableName();
-			StringBuilder builder = new StringBuilder($"USE {adapter.Table.Database}; IF OBJECT_ID('{tableName}', 'U') IS NULL CREATE table {tableName} (");
-			StringBuilder columnNames = new StringBuilder();
-			string columNames = string.Join(", ", adapter.Columns.Select(p => GenerateColumn(adapter, p)));
-			builder.Append(columNames);
-			builder.Append(",");
-			builder.Append(
-				$" CONSTRAINT [PK_{tableName}] PRIMARY KEY CLUSTERED (__Id)WITH(PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = {(adapter.PipelineMode == PipelineMode.InsertAndIgnoreDuplicate ? "ON" : "OFF")}, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON[PRIMARY]) ON[PRIMARY];");
+			var tableName = GetTableName(tableInfo);
+			var database = GetDatabaseName(tableInfo);
 
-			if (adapter.Table.Indexs != null)
+			var isAutoIncrementPrimary = tableInfo.IsAutoIncrementPrimary;
+
+			StringBuilder builder = string.IsNullOrWhiteSpace(database) ?
+				new StringBuilder($"IF OBJECT_ID('{tableName}', 'U') IS NULL CREATE table {tableName} (") :
+				new StringBuilder($"USE {database}; IF OBJECT_ID('{tableName}', 'U') IS NULL CREATE table {tableName} (");
+
+			foreach (var column in tableInfo.Columns)
 			{
-				foreach (var index in adapter.Table.Indexs)
+				var isPrimary = tableInfo.Primary.Any(k => k.Name == column.Name);
+
+				var columnSql = GenerateColumn(column, isPrimary);
+
+				if (isAutoIncrementPrimary && isPrimary)
 				{
-					var columns = index.Split(',');
-					string name = string.Join("_", columns.Select(c => c));
-					string indexColumNames = string.Join(", ", columns.Select(c => $"[{c}]"));
-					builder.Append($"CREATE NONCLUSTERED INDEX [index_{name}] ON {tableName} ({indexColumNames.Substring(0, indexColumNames.Length)});");
+					builder.Append($"{columnSql} IDENTITY(1,1), ");
+				}
+				else
+				{
+					builder.Append($"{columnSql}, ");
+				}
+			}
+			builder.Remove(builder.Length - 2, 2);
+
+			if (AutoTimestamp)
+			{
+				builder.Append($", creation_time DATETIME DEFAULT(GETDATE()), creation_date DATE DEFAULT(GETDATE())");
+			}
+
+			if (tableInfo.Primary.Count > 0)
+			{
+				var primaryKeys = string.Join(", ", tableInfo.Primary.Select(c => $"[{GetColumnName(c)}]"));
+				builder.Append(
+					$", CONSTRAINT [PK_{tableName}] PRIMARY KEY CLUSTERED ({primaryKeys}) WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = ON , ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON[PRIMARY]) ON[PRIMARY];");
+			}
+			else
+			{
+				builder.Append(") ON [PRIMARY];");
+			}
+
+			if (tableInfo.Indexes.Count > 0)
+			{
+				foreach (var index in tableInfo.Indexes)
+				{
+					string name = index.Key;
+					string indexColumNames = string.Join(", ", index.Value.Select(c => $"[{GetColumnName(c)}]"));
+					builder.Append($"CREATE NONCLUSTERED INDEX [INDEX_{name}] ON {tableName} ({indexColumNames});");
 				}
 			}
 
-			if (adapter.Table.Uniques != null)
+			if (tableInfo.Uniques.Count > 0)
 			{
-				foreach (var unique in adapter.Table.Uniques)
+				foreach (var unique in tableInfo.Uniques)
 				{
-					var columns = unique.Split(',');
-					string name = string.Join("_", columns.Select(c => c));
-					string uniqueColumNames = string.Join(", ", columns.Select(c => $"[{c}]"));
-					builder.Append($"CREATE UNIQUE NONCLUSTERED INDEX [unique_{name}] ON {tableName} ({uniqueColumNames.Substring(0, uniqueColumNames.Length)}) {(adapter.PipelineMode == PipelineMode.InsertAndIgnoreDuplicate ? "WITH (IGNORE_DUP_KEY = ON)" : "") };");
+					string name = unique.Key;
+					string uniqueColumNames = string.Join(", ", unique.Value.Select(c => $"[{GetColumnName(c)}]"));
+					builder.Append($"CREATE UNIQUE NONCLUSTERED INDEX [UNIQUE_{name}] ON {tableName} ({uniqueColumNames}) {(PipelineMode == PipelineMode.InsertAndIgnoreDuplicate ? "WITH (IGNORE_DUP_KEY = ON)" : "") };");
 				}
 			}
 			var sql = builder.ToString();
 			return sql;
 		}
 
-		private string GenerateColumn(EntityAdapter adapter, Column p)
+		private string GenerateColumn(Column column, bool isPrimary)
 		{
-			if (p.DataType.FullName == DataTypeNames.DateTime)
+			var columnName = Ignorease ? column.Name.ToLower() : column.Name;
+			var dataType = GetDataTypeSql(column.DataType, column.Length);
+
+			if (isPrimary)
 			{
-				return $"[{p.Name}] {GetDataTypeSql(p)} DEFAULT(GETDATE())";
+				dataType = $"{dataType} NOT NULL";
 			}
-			else if (Env.IdColumns.Contains(p.Name))
-			{
-				return $"[__Id] [bigint] IDENTITY(1,1) NOT NULL";
-			}
-			else
-			{
-				return $"[{p.Name}] {GetDataTypeSql(p)}";
-			}
+
+			return $"[{columnName}] {dataType}";
 		}
 
-		private string GenerateInsertSql(EntityAdapter adapter)
+		private string GenerateInsertSql(TableInfo tableInfo)
 		{
-			if (adapter.PipelineMode == PipelineMode.InsertAndIgnoreDuplicate)
+			var columns = tableInfo.Columns;
+			var isAutoIncrementPrimary = tableInfo.IsAutoIncrementPrimary;
+			// 去掉自增主键
+			var insertColumns = isAutoIncrementPrimary ? columns.Where(c1 => c1.Name != tableInfo.Primary.First().Name) : columns;
+
+			string columnsSql = string.Join(", ", insertColumns.Select(p => $"[{(Ignorease ? p.Name.ToLower() : p.Name)}]"));
+
+			if (AutoTimestamp)
 			{
-				throw new NotSupportedException("Sql Server not supported this model.");
+				columnsSql = $"{columnsSql}, [creation_time], [creation_date]";
 			}
 
-			var colNames = adapter.Columns.Where(p => !Env.IdColumns.Contains(p.Name) && p.Name != Env.CDateColumn).Select(p => p.Name);
-			string cols = string.Join(", ", colNames.Select(p => $"[{p}]"));
-			string colsParams = string.Join(", ", colNames.Select(p => $"@{p}"));
-			var tableName = adapter.Table.CalculateTableName();
+			string columnsParamsSql = string.Join(", ", insertColumns.Select(p => $"@{p.Name}"));
 
-			var sql = string.Format("USE {0}; INSERT INTO [{1}] ({2}) VALUES ({3});",
-				adapter.Table.Database,
-				tableName,
-				cols,
-				colsParams);
+			if (AutoTimestamp)
+			{
+				columnsParamsSql = $"{columnsParamsSql}, GETDATE(), GETDATE()";
+			}
+
+			var tableName = GetTableName(tableInfo);
+			var database = GetDatabaseName(tableInfo);
+
+			var sql = string.IsNullOrWhiteSpace(database) ? $"INSERT INTO [{tableName}] ({columnsSql}) VALUES ({columnsParamsSql});" :
+				$"USE {database}; INSERT INTO [{tableName}] ({columnsSql}) VALUES ({columnsParamsSql});";
 			return sql;
 		}
 
-		private string GenerateUpdateSql(EntityAdapter adapter)
+		private string GenerateUpdateSql(TableInfo tableInfo)
 		{
-			string setCols = string.Join(", ", adapter.Table.UpdateColumns.Select(p => $"[{p}]=@{p}"));
+			// 无主键, 无更新字段都无法生成更新SQL
+			if (tableInfo.Updates.Count == 0)
+			{
+				Logger?.LogWarning("Can't generate update sql, the count of update columns is zero.");
 
-			var tableName = adapter.Table.CalculateTableName();
-			var sql = string.Format("USE {0}; UPDATE [{1}] SET {2} WHERE [__Id] = @__Id;",
-					adapter.Table.Database,
-					tableName,
-					setCols);
+				return null;
+			}
 
+			if (tableInfo.Primary.Count == 0)
+			{
+				Logger?.LogWarning("Can't generate update sql, primary key is missing.");
+				return null;
+			}
+
+			var tableName = GetTableName(tableInfo);
+			var database = GetDatabaseName(tableInfo);
+
+			string where = "";
+			foreach (var column in tableInfo.Primary)
+			{
+				where += $" [{GetColumnName(column)}] = @{column.Name} AND";
+			}
+			where = where.Substring(0, where.Length - 3);
+
+			string setCols = string.Join(", ", tableInfo.Updates.Select(c => $"[{GetColumnName(c)}]=@{c.Name}"));
+			var sql = string.IsNullOrWhiteSpace(database) ? $"UPDATE [{tableName}] SET {setCols} WHERE {where};" :
+				$"USE [{database}]; UPDATE [{tableName}] SET {setCols} WHERE {where};";
 			return sql;
 		}
 
-		private string GenerateSelectSql(EntityAdapter adapter)
+		private string GenerateSelectSql(TableInfo tableInfo)
 		{
-			StringBuilder primaryParamenters = new StringBuilder();
+			if (tableInfo.Primary.Count == 0)
+			{
+				Logger?.LogWarning("Can't generate select sql, primary key is missing.");
+				return null;
+			}
 
-			primaryParamenters.Append($"[__Id] = @__Id");
+			var tableName = GetTableName(tableInfo);
+			var database = GetDatabaseName(tableInfo);
 
-			var sqlBuilder = new StringBuilder();
-			var tableName = adapter.Table.CalculateTableName();
-			sqlBuilder.AppendFormat("USE {0}; SELECT * FROM [{1}] WHERE {2};",
-				adapter.Table.Database,
-				tableName,
-				primaryParamenters.ToString());
+			string where = "";
+			foreach (var column in tableInfo.Primary)
+			{
+				where += $" [{GetColumnName(column)}] = @{column.Name} AND";
+			}
+			where = where.Substring(0, where.Length - 3);
 
-			return sqlBuilder.ToString();
+			var sql = string.IsNullOrWhiteSpace(database) ? $"SELECT * FROM [{tableName}] WHERE {where};" :
+				$"USE [{database}]; SELECT * FROM [{tableName}] WHERE {where};";
+			return sql;
 		}
 
-		protected string GetDataTypeSql(Column field)
+		private string GetDataTypeSql(DataType type, int length)
 		{
-			var dataType = "TEXT";
+			string dataType;
 
-			if (field.DataType.FullName == DataTypeNames.Boolean)
+			switch (type)
 			{
-				dataType = "BOOL";
+				case DataType.Bool:
+					{
+						dataType = "BIT";
+						break;
+					}
+				case DataType.DateTime:
+					{
+						dataType = "DATETIME DEFAULT(GETDATE())";
+						break;
+					}
+				case DataType.Date:
+					{
+						dataType = "DATE DEFAULT(GETDATE())";
+						break;
+					}
+				case DataType.Decimal:
+					{
+						dataType = "DECIMAL(18,2)";
+						break;
+					}
+				case DataType.Double:
+					{
+						dataType = "FLOAT";
+						break;
+					}
+				case DataType.Float:
+					{
+						dataType = "FLOAT";
+						break;
+					}
+				case DataType.Int:
+					{
+						dataType = "INT";
+						break;
+					}
+				case DataType.Long:
+					{
+						dataType = "BIGINT";
+						break;
+					}
+				default:
+					{
+						dataType = length <= 0 || length >= 8000 ? "NVARCHAR(MAX)" : $"NVARCHAR({length})";
+						break;
+					}
 			}
-			else if (field.DataType.FullName == DataTypeNames.DateTime)
-			{
-				dataType = "DATETIME";
-			}
-			else if (field.DataType.FullName == DataTypeNames.Decimal)
-			{
-				dataType = "DECIMAL(18,2)";
-			}
-			else if (field.DataType.FullName == DataTypeNames.Double)
-			{
-				dataType = "FLOAT";
-			}
-			else if (field.DataType.FullName == DataTypeNames.Float)
-			{
-				dataType = "FLOAT";
-			}
-			else if (field.DataType.FullName == DataTypeNames.Int)
-			{
-				dataType = "INT";
-			}
-			else if (field.DataType.FullName == DataTypeNames.Int64)
-			{
-				dataType = "BIGINT";
-			}
-			else if (field.DataType.FullName == DataTypeNames.String)
-			{
-				dataType = field.Length <= 0 ? "NVARCHAR(MAX)" : $"NVARCHAR({field.Length}) {(field.NotNull ? "NOT NULL" : "NULL")}";
-			}
-
 			return dataType;
 		}
 
-		protected override ConnectionStringSettings CreateConnectionStringSettings(string connectString = null)
+		protected override IDbConnection CreateDbConnection(string connectString)
 		{
-			ConnectionStringSettings connectionStringSettings;
-			if (!string.IsNullOrEmpty(connectString))
-			{
-				connectionStringSettings = new ConnectionStringSettings("SqlServer", connectString, "System.Data.SqlClient");
-			}
-			else
-			{
-				if (Env.DataConnectionStringSettings != null)
-				{
-					connectionStringSettings = Env.DataConnectionStringSettings;
-				}
-				else
-				{
-					return null;
-				}
-			}
-			return connectionStringSettings;
+			return new SqlConnection(connectString);
 		}
 
-		protected override void InitAllSqlOfEntity(EntityAdapter adapter)
+		protected override Sqls GenerateSqls(TableInfo model)
 		{
-			if (adapter.PipelineMode == PipelineMode.InsertNewAndUpdateOld)
+			if (PipelineMode == PipelineMode.InsertNewAndUpdateOld)
 			{
-				//Logger.MyLog(Spider.Identity, "Sql Server only check if primary key duplicate.", NLog.LogLevel.Warn);
 				throw new NotImplementedException("Sql Server not suport InsertNewAndUpdateOld yet.");
 			}
-			adapter.InsertSql = GenerateInsertSql(adapter);
-			adapter.SelectSql = GenerateSelectSql(adapter);
-			adapter.InsertAndIgnoreDuplicateSql = GenerateInsertSql(adapter);
-			if (adapter.PipelineMode == PipelineMode.Update)
-			{
-				adapter.UpdateSql = GenerateUpdateSql(adapter);
-			}
+			var sqls = new Sqls();
+
+			sqls.InsertSql = GenerateInsertSql(model);
+			sqls.InsertAndIgnoreDuplicateSql = GenerateInsertSql(model);
+			sqls.UpdateSql = GenerateUpdateSql(model);
+			sqls.SelectSql = GenerateSelectSql(model);
+			return sqls;
 		}
 
-		internal override void InitDatabaseAndTable()
+		protected override void InitDatabaseAndTable(IDbConnection conn, TableInfo model)
 		{
-			foreach (var adapter in EntityAdapters.Values)
-			{
-				using (var conn = ConnectionStringSettings.GetDbConnection())
-				{
-					var sql = GenerateIfDatabaseExistsSql(adapter, conn.ServerVersion);
+			var serverVersion = ((DbConnection)conn).ServerVersion;
+			var sql = GenerateIfDatabaseExistsSql(model, serverVersion);
 
-					if (Convert.ToInt16(conn.MyExecuteScalar(sql)) == 0)
-					{
-						sql = GenerateCreateDatabaseSql(adapter, conn.ServerVersion);
-						conn.MyExecute(sql);
-					}
-
-					sql = GenerateCreateTableSql(adapter);
-					conn.MyExecute(sql);
-				}
-			}
-		}
-
-		public override int Process(string entityName, List<dynamic> datas)
-		{
-			if (datas == null || datas.Count == 0)
+			if (Convert.ToInt16(conn.MyExecuteScalar(sql)) == 0)
 			{
-				return 0;
+				sql = GenerateCreateDatabaseSql(model, serverVersion);
+				conn.MyExecute(sql);
 			}
-			int count = 0;
-			if (EntityAdapters.TryGetValue(entityName, out var metadata))
-			{
-				using (var conn = ConnectionStringSettings.GetDbConnection())
-				{
-					switch (metadata.PipelineMode)
-					{
-						case PipelineMode.Insert:
-						case PipelineMode.InsertAndIgnoreDuplicate:
-							{
-								count += conn.MyExecute(metadata.InsertSql, datas);
-								break;
-							}
-						case PipelineMode.InsertNewAndUpdateOld:
-							{
-								throw new NotImplementedException("Sql Server not suport InsertNewAndUpdateOld yet.");
-							}
-						case PipelineMode.Update:
-							{
-								count += conn.MyExecute(metadata.UpdateSql, datas);
-								break;
-							}
-						default:
-							{
-								count += conn.MyExecute(metadata.InsertSql, datas);
-								break;
-							}
-					}
-				}
-			}
-			return count;
+
+			sql = GenerateCreateTableSql(model);
+			conn.MyExecute(sql);
 		}
 	}
 }

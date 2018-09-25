@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using HtmlAgilityPack;
 
-namespace DotnetSpider.HtmlAgilityPack
+namespace DotnetSpider.HtmlAgilityPack.Css
 {
     #region Imports
 

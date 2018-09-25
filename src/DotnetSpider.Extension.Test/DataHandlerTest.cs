@@ -1,59 +1,49 @@
 ﻿using DotnetSpider.Extension.Model;
-using DotnetSpider.Extension.Model.Attribute;
 using DotnetSpider.Extension.Processor;
 using Xunit;
-using System;
-using System.Collections.Generic;
 using DotnetSpider.Core;
 using System.IO;
+using DotnetSpider.Extraction.Model;
+using DotnetSpider.Extraction.Model.Attribute;
+using DotnetSpider.Extraction;
+using DotnetSpider.Downloader;
 
-namespace DotnetSpider.Extension.Test
+namespace DotnetSpider.Extension.Test.Model
 {
-
 	public class DataHandlerTest
 	{
-		private class MyDataHanlder : DataHandler<Product>
+		private class MyDataHandler : IDataHandler
 		{
-			public string Identity { get; set; }
-
-			public MyDataHanlder(string guid)
+			public void Handle(ref dynamic data, Page page)
 			{
-				Identity = guid;
-			}
-
-			protected override Product HandleDataOject(Product data, Page page)
-			{
-				return data;
-			}
-
-			public override List<Product> Handle(List<Product> datas, Page page)
-			{
-				var stream = File.Create(Identity);
+				var name = data.name;
+				var stream = File.Create("file." + name);
 				stream.Dispose();
-				return base.Handle(datas, page);
 			}
 		}
 
-		[Fact]
-		public void HandlerWhenExtractZeroResult()
+		[Fact(DisplayName = "HandleModel")]
+		public void HandleModel()
 		{
-			var entityMetadata = new EntityDefine<Product>();
-			var identity = Guid.NewGuid().ToString("N");
-
-			EntityProcessor<Product> processor = new EntityProcessor<Product>(new Site(), new MyDataHanlder(identity));
+			var model = new ModelDefinition<Product>();
+			EntityProcessor<Product> processor = new EntityProcessor<Product>(null, null, new MyDataHandler());
 
 			processor.Process(new Page(new Request("http://www.abcd.com"))
 			{
-				Content = "{'data':[{'name':'1'},{'name':'2'}]}"
+				Content = "{'data':[{'name':'aaaa'},{'name':'bbbb'}]}"
 			});
-			Assert.True(File.Exists(identity));
-			File.Delete(identity);
+			Assert.True(File.Exists("file.aaaa"));
+			Assert.True(File.Exists("file.bbbb"));
+			File.Delete("file.aaaa");
+			File.Delete("file.bbbb");
 		}
 
-		[EntitySelector(Expression = "$.data[*]", Type = Core.Selector.SelectorType.JsonPath)]
-		private class Product : SpiderEntity
+		[Entity(Expression = "$.data[*]", Type = SelectorType.JsonPath)]
+		[Schema]
+		private class Product : IBaseEntity
 		{
-			[PropertyDefine(Expression = "$.name", Type = Core.Selector.SelectorType.JsonPath, Length = 100)]
+			[Field(Expression = "$.name", Type = SelectorType.JsonPath)]
+			[Column(Length = 100)]
 			public string name { get; set; }
 		}
 	}

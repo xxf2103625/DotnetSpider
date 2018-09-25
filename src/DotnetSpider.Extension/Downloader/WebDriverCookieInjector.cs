@@ -1,123 +1,33 @@
 using OpenQA.Selenium.Firefox;
 using System;
-using DotnetSpider.Core.Selector;
-using System.Linq;
-using System.Threading;
-using DotnetSpider.Core.Infrastructure;
-using DotnetSpider.Extension.Model;
 using OpenQA.Selenium.Chrome;
-using OpenQA.Selenium;
 using OpenQA.Selenium.Remote;
-using DotnetSpider.Core.Downloader;
-using DotnetSpider.Core;
 using System.IO;
-using System.Collections.Generic;
+using DotnetSpider.Downloader;
+using DotnetSpider.Extension.Infrastructure;
 
 namespace DotnetSpider.Extension.Downloader
 {
-
-	public class WebDriverCookieInjector : CookieInjector
+	public abstract class WebDriverCookieInjector : CookieInjector
 	{
-		public string Url { get; set; }
+		/// <summary>
+		/// 浏览器
+		/// </summary>
+		private readonly Browser _browser;
 
-		public string AfterLoginUrl { get; set; }
-
-		public Selector UserSelector { get; set; }
-
-		public string User { get; set; }
-
-		public Selector PassSelector { get; set; }
-
-		public string Password { get; set; }
-
-		public Selector SubmitSelector { get; set; }
-
-		public Browser Browser { get; set; } = Browser.Chrome;
-
-		protected virtual void BeforeInputInfo(RemoteWebDriver webDriver) { }
-
-		protected virtual void AfterLoginComplete(RemoteWebDriver webDriver) { }
-
-		protected IWebElement FindElement(RemoteWebDriver webDriver, Selector element)
+		public WebDriverCookieInjector(Browser browser, Action before = null, Action after = null) : base(before, after)
 		{
-			switch (element.Type)
-			{
-
-				case SelectorType.XPath:
-					{
-						return webDriver.FindElementByXPath(element.Expression);
-					}
-				case SelectorType.Css:
-					{
-						return webDriver.FindElementByCssSelector(element.Expression);
-					}
-			}
-			throw new SpiderException("Unsport findy: " + element.Type);
+			_browser = browser;
 		}
 
-		protected override Cookies GetCookies(ISpider spider)
-		{
-			if (string.IsNullOrEmpty(User) || string.IsNullOrEmpty(Password) || UserSelector == null || PassSelector == null)
-			{
-				throw new SpiderException("Arguments of WebDriverCookieInjector are incorrect.");
-			}
-			var cookies = new Dictionary<string, string>();
-
-			var webDriver = CreateWebDriver();
-			try
-			{
-				webDriver.Navigate().GoToUrl(Url);
-				Thread.Sleep(10000);
-
-				BeforeInputInfo(webDriver);
-
-				if (UserSelector != null)
-				{
-					var user = FindElement(webDriver, UserSelector);
-					user.Clear();
-					user.SendKeys(User);
-					Thread.Sleep(1500);
-				}
-
-				if (PassSelector != null)
-				{
-					var pass = FindElement(webDriver, PassSelector);
-					pass.Clear();
-					pass.SendKeys(Password);
-					Thread.Sleep(1500);
-				}
-
-				var submit = FindElement(webDriver, SubmitSelector);
-				submit.Click();
-				Thread.Sleep(10000);
-
-				AfterLoginComplete(webDriver);
-
-				var cookieList = webDriver.Manage().Cookies.AllCookies.ToList();
-				if (cookieList.Count > 0)
-				{
-					foreach (var cookieItem in cookieList)
-					{
-						cookies.Add(cookieItem.Name, cookieItem.Value);
-					}
-				}
-
-				webDriver.Dispose();
-			}
-			catch (Exception e)
-			{
-				Logger.MyLog(spider.Identity, "Get cookie failed.", NLog.LogLevel.Error, e);
-				webDriver.Dispose();
-				return null;
-			}
-
-			return new Cookies { PairPart = cookies };
-		}
-
+		/// <summary>
+		/// 创建WebDriver对象
+		/// </summary>
+		/// <returns>WebDriver对象</returns>
 		protected RemoteWebDriver CreateWebDriver()
 		{
 			RemoteWebDriver webDriver;
-			switch (Browser)
+			switch (_browser)
 			{
 				case Browser.Chrome:
 					{
@@ -134,13 +44,16 @@ namespace DotnetSpider.Extension.Downloader
 						string[] pathsToProfiles = Directory.GetDirectories(path, "*.webdriver", SearchOption.TopDirectoryOnly);
 						if (pathsToProfiles.Length == 1)
 						{
-							FirefoxProfile profile = new FirefoxProfile(pathsToProfiles[0], false) {AlwaysLoadNoFocusLibrary = true};
-							webDriver = new FirefoxDriver(profile);
+							FirefoxProfile profile = new FirefoxProfile(pathsToProfiles[0], false) { AlwaysLoadNoFocusLibrary = true };
+							FirefoxOptions options = new FirefoxOptions();
+							options.Profile = profile;
+							webDriver = new FirefoxDriver(options);
 						}
 						else
 						{
 							throw new Exception("No Firefox profiles: webdriver.");
 						}
+
 						break;
 					}
 				default:

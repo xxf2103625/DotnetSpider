@@ -1,24 +1,25 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
-    <TargetFrameworks Condition="'$(LibraryFrameworks)'==''">net45;netstandard2.0;</TargetFrameworks>
-    <TargetFrameworks Condition="'$(LibraryFrameworks)'!=''">$(LibraryFrameworks)</TargetFrameworks>
+    <TargetFrameworks>net451;netstandard2.0</TargetFrameworks>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <Version>3.0.0</Version>
+    <Authors>zlzforever@163.com;</Authors>
+    <AssemblyName>DotnetSpider.HtmlAgilityPack.Css</AssemblyName>
+    <Copyright>Copyright 2018 Lewis Zou</Copyright>
+    <PackageId>DotnetSpider.HtmlAgilityPack.Css</PackageId>
+    <Description>A .NET Standard web crawling library similar to WebMagic and Scrapy. It is a lightweight ,efficient and fast high-level web crawling &amp;amp; scraping framework for .NET</Description>
+    <PackageTags>DotnetSpider;crawler;dotnet core</PackageTags>
+    <PackageProjectUrl>https://github.com/zlzforever/DotnetSpider</PackageProjectUrl>
+    <PackageLicenseUrl>https://raw.githubusercontent.com/zlzforever/DotnetSpider/master/LICENSE</PackageLicenseUrl>
+    <PackageIconUrl>https://github.com/zlzforever/DotnetSpider/blob/master/images/icon.png?raw=true</PackageIconUrl>
+    <RepositoryUrl>https://github.com/zlzforever/DotnetSpider</RepositoryUrl>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
-
-  <PropertyGroup Condition="'$(TargetFramework)'=='net45'">
-    <AssemblyTitle>DotnetSpider</AssemblyTitle>
-    <DefineConstants>DEBUG;NET45;</DefineConstants>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(TargetFramework)'=='netstandard2.0'">
-    <AssemblyTitle>DotnetSpider</AssemblyTitle>
-    <DefineConstants>NET_CORE;$(AdditionalConstants)</DefineConstants>
-  </PropertyGroup>
-  <PropertyGroup>
-    <OutputPath>..\..\output\</OutputPath>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="HtmlAgilityPack" Version="1.6.3" />
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net451' ">
+    <PackageReference Include="HtmlAgilityPack" Version="1.8.5" />
   </ItemGroup>
-
+  <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard2.0' ">
+    <PackageReference Include="HtmlAgilityPack" Version="1.8.5" />
+  </ItemGroup>
 </Project>

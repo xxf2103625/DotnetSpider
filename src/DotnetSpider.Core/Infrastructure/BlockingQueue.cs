@@ -4,7 +4,11 @@ using System.Threading;
 
 namespace DotnetSpider.Core.Infrastructure
 {
-	public sealed class BlockingQueue<T> : ICollection
+	/// <summary>
+	/// 线程安全的队列
+	/// </summary>
+	/// <typeparam name="T">类型</typeparam>
+	public class BlockingQueue<T> : ICollection
 	{
 		// Buffer used to store queue objects with max "Size".
 		private readonly T[] _buffer;
@@ -390,8 +394,14 @@ namespace DotnetSpider.Core.Infrastructure
 		#endregion
 	}
 
+	/// <summary>
+	/// 队列出队或者入队超时异常
+	/// </summary>
 	public class QueueTimeoutException : SpiderException
 	{
+		/// <summary>
+		/// 构造方法
+		/// </summary>
 		public QueueTimeoutException() : base("Queue method timed out on wait.")
 		{
 		}

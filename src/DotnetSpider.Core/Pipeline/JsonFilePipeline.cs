@@ -1,78 +1,86 @@
 using System.IO;
 using System.Text;
-using DotnetSpider.Core.Infrastructure;
 using Newtonsoft.Json;
-using NLog;
-#if NET_CORE
-using System.Runtime.InteropServices;
-#endif
+using System.Collections.Generic;
+using System.Collections.Concurrent;
+using System;
+using Microsoft.Extensions.Logging;
 
 namespace DotnetSpider.Core.Pipeline
 {
 	/// <summary>
-	/// Store results to files in JSON format.
+	/// 数据序列化成JSON并存储到文件中
 	/// </summary>
-	public class JsonFilePipeline : BasePipeline
+	public class JsonFilePipeline : BaseFilePipeline
 	{
-		private readonly string _intervalPath;
+		private readonly ConcurrentDictionary<string, StreamWriter> _writers = new ConcurrentDictionary<string, StreamWriter>();
 
-		public JsonFilePipeline()
+		/// <summary>
+		/// 构造方法
+		/// </summary>
+		public JsonFilePipeline() : base("json")
 		{
-#if NET_CORE
-			_intervalPath = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "data\\json" : "data/json";
-#else
-			_intervalPath = "data\\json";
-#endif
 		}
 
-		public JsonFilePipeline(string path)
+		/// <summary>
+		/// 构造方法
+		/// </summary>
+		/// <param name="interval">数据根目录与程序运行目录路径的相对值</param>
+		public JsonFilePipeline(string interval) : base(interval)
 		{
-			_intervalPath = path;
 		}
 
-		public string GetDataForlder()
+		/// <summary>
+		/// 数据序列化成JSON并存储到文件中
+		/// </summary>
+		/// <param name="resultItems">数据结果</param>
+		/// <param name="logger">日志接口</param>
+		/// <param name="sender">调用方</param>
+		public override void Process(IList<ResultItems> resultItems, dynamic sender = null)
 		{
-			return $"{BasePath}{Env.PathSeperator}{Spider.Identity}{Env.PathSeperator}";
-		}
-
-		public override void InitPipeline(ISpider spider)
-		{
-			base.InitPipeline(spider);
-
-			string path;
-			if (string.IsNullOrEmpty(_intervalPath))
+			var jsonFile = Path.Combine(GetDataFolder(sender), $"{GetIdentity(sender)}.json");
+			try
 			{
-#if NET_CORE
-				path = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? $"\\{spider.Identity}\\data\\json" : $"/{spider.Identity}/data/json";
-#else
-				path = "\\{spider.Identity}\\data\\json";
-#endif
+				var streamWriter = GetStreamWriter(jsonFile);
+				foreach (var resultItem in resultItems)
+				{
+					resultItem.Request.AddCountOfResults(1);
+					resultItem.Request.AddEffectedRows(1);
+
+					streamWriter.WriteLine(JsonConvert.SerializeObject(resultItem));
+				}
+			}
+			catch (Exception e)
+			{
+				Logger?.LogError($"Storage data to file {jsonFile} failed: {e}.");
+				throw;
+			}
+		}
+
+		/// <summary>
+		/// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+		/// </summary>
+		public override void Dispose()
+		{
+			base.Dispose();
+			foreach (var pair in _writers)
+			{
+				pair.Value.Dispose();
+			}
+			_writers.Clear();
+		}
+
+		private StreamWriter GetStreamWriter(string file)
+		{
+			if (_writers.ContainsKey(file))
+			{
+				return _writers[file];
 			}
 			else
 			{
-				path = _intervalPath;
-			}
-			SetPath(path);
-		}
-
-		public override void Process(params ResultItems[] resultItems)
-		{
-			try
-			{
-				foreach (var resultItem in resultItems)
-				{
-					string path = $"{BasePath}{Env.PathSeperator}{Spider.Identity}{Env.PathSeperator}{Encrypt.Md5Encrypt(resultItem.Request.Url.ToString())}.json";
-					FileInfo file = PrepareFile(path);
-					using (StreamWriter printWriter = new StreamWriter(file.OpenWrite(), Encoding.UTF8))
-					{
-						printWriter.WriteLine(JsonConvert.SerializeObject(resultItem.Results));
-					}
-				}
-			}
-			catch (IOException e)
-			{
-				Logger.MyLog(Spider.Identity, "Write data to json file failed.", LogLevel.Error, e);
-				throw;
+				var streamWriter = new StreamWriter(File.OpenWrite(file), Encoding.UTF8);
+				_writers.TryAdd(file, streamWriter);
+				return streamWriter;
 			}
 		}
 	}

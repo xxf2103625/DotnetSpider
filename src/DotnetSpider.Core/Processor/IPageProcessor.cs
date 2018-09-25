@@ -1,16 +1,21 @@
+using Microsoft.Extensions.Logging;
+
 namespace DotnetSpider.Core.Processor
 {
+	/// <summary>
+	/// 页面解析器、抽取器
+	/// </summary>
 	public interface IPageProcessor
 	{
 		/// <summary>
-		/// Process the page, extract urls to fetch, extract the data and store
+		/// 日志接口
 		/// </summary>
-		/// <param name="page"></param>
-		void Process(Page page);
+		ILogger Logger { get; set; }
 
 		/// <summary>
-		/// Get the site settings
+		/// 解析数据结果, 解析目标链接
 		/// </summary>
-		Site Site { get; set; }
+		/// <param name="page">页面数据</param>
+		void Process(Page page);
 	}
 }

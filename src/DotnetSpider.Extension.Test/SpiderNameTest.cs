@@ -12,7 +12,7 @@ namespace DotnetSpider.Extension.Test
 			{
 			}
 
-			protected override void MyInit(params string[] arguments)
+			protected override void OnInit(params string[] arguments)
 			{
 
 			}
@@ -25,43 +25,45 @@ namespace DotnetSpider.Extension.Test
 			}
 		}
 
-		public class MySpider3 : CommonSpider
+		public class MySpider3 : Spider
 		{
-			public MySpider3():base("MySpider3_1")
+			public MySpider3()
 			{
+				Name = "MySpider3_1";
 			}
 
-			protected override void MyInit(params string[] arguments)
+			protected override void OnInit(params string[] arguments)
 			{
 			}
 		}
 
 		public class MySpider4 : EntitySpider
 		{
-			public MySpider4() : base("MySpider4_1")
+			public MySpider4()
 			{
+				Name = "MySpider4_1";
 			}
 
-			protected override void MyInit(params string[] arguments)
+			protected override void OnInit(params string[] arguments)
 			{
 			}
 		}
 
-		[Fact]
+		[Fact(DisplayName = "SetSpiderNameByAttribute")]
 		public void SetSpiderNameByAttribute()
 		{
 			MySpider1 spider = new MySpider1();
 			Assert.Equal("HelloSpider", spider.Name);
 		}
 
-		[Fact]
+		[Fact(DisplayName = "SetSpiderNameByClassName")]
 		public void SetSpiderNameByClassName()
 		{
 			MySpider2 spider = new MySpider2();
 			Assert.Equal("MySpider2", spider.Name);
 		}
 
-		[Fact]
+		[Fact(DisplayName = "SetSpiderNameByConstructor")]
 		public void SetSpiderNameByConstructor()
 		{
 			MySpider3 spider = new MySpider3();

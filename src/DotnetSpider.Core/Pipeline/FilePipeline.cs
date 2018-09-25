@@ -1,51 +1,49 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using DotnetSpider.Core.Infrastructure;
-using NLog;
-#if NET_CORE
-#endif
 
 namespace DotnetSpider.Core.Pipeline
 {
 	/// <summary>
-	/// Store results in files.
+	/// 存储数据结果到文件中
 	/// </summary>
-	public sealed class FilePipeline : BasePipeline
+	public class FilePipeline : BaseFilePipeline
 	{
 		/// <summary>
-		/// create a FilePipeline with default path"/data/dotnetspider/"
+		/// 数据文件夹地址为: {BaseDirecoty}/data/{Identity}
 		/// </summary>
-		public FilePipeline()
+		public FilePipeline() : base("file")
 		{
-			SetPath("data");
 		}
 
-		public FilePipeline(string path)
+		/// <summary>
+		/// 数据文件夹地址为: {BaseDirecoty}/data/{interval}
+		/// </summary>
+		public FilePipeline(string interval) : base(interval)
 		{
-			SetPath(path);
 		}
 
-		public string GetDataForlder()
-		{
-			return $"{BasePath}{Env.PathSeperator}{Spider.Identity}{Env.PathSeperator}";
-		}
-
-		public override void Process(params ResultItems[] resultItems)
+		/// <summary>
+		/// 存储数据结果到文件中
+		/// </summary>
+		/// <param name="resultItems">数据结果</param>
+		/// <param name="logger">日志接口</param>
+		/// <param name="sender">调用方</param>
+		public override void Process(IList<ResultItems> resultItems, dynamic sender = null)
 		{
 			try
 			{
 				foreach (var resultItem in resultItems)
 				{
-					string filePath = $"{BasePath}{Env.PathSeperator}{Spider.Identity}{Env.PathSeperator}{Guid.NewGuid():N}.dsd";
-					FileInfo file = PrepareFile(filePath);
-
-					using (StreamWriter printWriter = new StreamWriter(file.OpenWrite(), Encoding.UTF8))
+					string filePath = Path.Combine(GetDataFolder(sender), $"{ Guid.NewGuid():N}.dsd");
+					using (StreamWriter printWriter = new StreamWriter(File.OpenWrite(filePath), Encoding.UTF8))
 					{
 						printWriter.WriteLine("url:\t" + resultItem.Request.Url);
 
-						foreach (var entry in resultItem.Results)
+						foreach (var entry in resultItem)
 						{
 							if (entry.Value is IList value)
 							{
@@ -55,10 +53,16 @@ namespace DotnetSpider.Core.Pipeline
 								{
 									printWriter.WriteLine(o);
 								}
+								resultItem.Request.AddCountOfResults(list.Count);
+								resultItem.Request.AddEffectedRows(list.Count);
+
 							}
 							else
 							{
 								printWriter.WriteLine(entry.Key + ":\t" + entry.Value);
+
+								resultItem.Request.AddCountOfResults(1);
+								resultItem.Request.AddEffectedRows(1);
 							}
 						}
 					}
@@ -66,7 +70,7 @@ namespace DotnetSpider.Core.Pipeline
 			}
 			catch (Exception e)
 			{
-				Logger.MyLog(Spider.Identity, "Write file error.", LogLevel.Error, e);
+				Logger?.LogError($"Storage data to file failed: {e}.");
 				throw;
 			}
 		}

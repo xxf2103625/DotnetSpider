@@ -1,21 +1,21 @@
+using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 
 namespace DotnetSpider.Core.Pipeline
 {
 	/// <summary>
-	/// Pipeline is the persistent and offline process part of crawler. 
-	/// The interface Pipeline can be implemented to customize ways of persistent.
+	/// 数据管道接口, 通过数据管道把解析的数据存到不同的存储中(文件、数据库）
 	/// </summary>
 	public interface IPipeline : IDisposable
 	{
-		ISpider Spider { get; }
-
-		void InitPipeline(ISpider spider);
+		ILogger Logger { get; set; }
 
 		/// <summary>
-		/// Process extracted results.
+		/// 处理页面解析器解析到的数据结果
 		/// </summary>
-		/// <param name="resultItems"></param>
-		void Process(params ResultItems[] resultItems);
+		/// <param name="resultItems">数据结果</param>
+		/// <param name="sender">调用方</param>
+		void Process(IList<ResultItems> resultItems, dynamic sender = null);
 	}
 }

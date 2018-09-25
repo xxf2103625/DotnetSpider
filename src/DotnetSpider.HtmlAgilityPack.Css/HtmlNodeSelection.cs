@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using HtmlAgilityPack;
 
-namespace DotnetSpider.HtmlAgilityPack
+namespace DotnetSpider.HtmlAgilityPack.Css
 {
     /// <summary>
     /// Selector API for <see cref="HtmlNode"/>.

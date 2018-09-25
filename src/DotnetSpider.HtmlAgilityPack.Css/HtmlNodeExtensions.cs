@@ -1,11 +1,11 @@
-using HtmlAgilityPack;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using HtmlAgilityPack;
 
-namespace DotnetSpider.HtmlAgilityPack
+namespace DotnetSpider.HtmlAgilityPack.Css
 {
     #region Imports
 

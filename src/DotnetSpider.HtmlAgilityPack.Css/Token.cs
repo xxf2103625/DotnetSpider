@@ -1,6 +1,6 @@
 using System;
 
-namespace DotnetSpider.HtmlAgilityPack
+namespace DotnetSpider.HtmlAgilityPack.Css
 {
 	/// <summary>
     /// Represent a token and optionally any text associated with it.

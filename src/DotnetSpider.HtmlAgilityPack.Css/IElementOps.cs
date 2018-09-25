@@ -1,4 +1,4 @@
-namespace DotnetSpider.HtmlAgilityPack
+namespace DotnetSpider.HtmlAgilityPack.Css
 {
     /// <summary>
     /// Represents a selectors implementation for an arbitrary document/node system.

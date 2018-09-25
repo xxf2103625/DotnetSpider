@@ -1,21 +1,35 @@
 using DotnetSpider.Core.Infrastructure;
+using DotnetSpider.Downloader;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
 namespace DotnetSpider.Core.Scheduler
 {
 	/// <summary>
-	/// Basic Scheduler implementation. 
+	/// Basic Scheduler implementation.
 	/// </summary>
-	public sealed class QueueDuplicateRemovedScheduler : DuplicateRemovedScheduler
+	public class QueueDuplicateRemovedScheduler : DuplicateRemovedScheduler
 	{
-		private readonly object _lock = new object();
-		private List<Request> _queue = new List<Request>();
 		private readonly AutomicLong _successCounter = new AutomicLong(0);
 		private readonly AutomicLong _errorCounter = new AutomicLong(0);
+		protected readonly List<Request> _queue = new List<Request>();
+		protected readonly object _lock = new object();
 
+		/// <summary>
+		/// 是否是分布式调度器
+		/// </summary>
+		public override bool IsDistributed => false;
+
+		/// <summary>
+		/// 是否会使用互联网
+		/// </summary>
 		protected override bool UseInternet { get; set; } = false;
 
+		/// <summary>
+		/// 如果链接不是重复的就添加到队列中
+		/// </summary>
+		/// <param name="request">请求对象</param>
 		protected override void PushWhenNoDuplicate(Request request)
 		{
 			lock (_lock)
@@ -24,14 +38,22 @@ namespace DotnetSpider.Core.Scheduler
 			}
 		}
 
+		/// <summary>
+		/// Reset duplicate check.
+		/// </summary>
 		public override void ResetDuplicateCheck()
 		{
 			lock (_lock)
 			{
 				_queue.Clear();
+				DuplicateRemover.ResetDuplicateCheck();
 			}
 		}
 
+		/// <summary>
+		/// 取得一个需要处理的请求对象
+		/// </summary>
+		/// <returns>请求对象</returns>
 		public override Request Poll()
 		{
 			lock (_lock)
@@ -43,15 +65,24 @@ namespace DotnetSpider.Core.Scheduler
 				else
 				{
 					Request request;
-					if (DepthFirst)
+					switch (TraverseStrategy)
 					{
-						request = _queue.Last();
-						_queue.RemoveAt(_queue.Count - 1);
-					}
-					else
-					{
-						request = _queue.First();
-						_queue.RemoveAt(0);
+						case TraverseStrategy.Dfs:
+							{
+								request = _queue.Last();
+								_queue.RemoveAt(_queue.Count - 1);
+								break;
+							}
+						case TraverseStrategy.Bfs:
+							{
+								request = _queue.First();
+								_queue.RemoveAt(0);
+								break;
+							}
+						default:
+							{
+								throw new NotImplementedException();
+							}
 					}
 
 					return request;
@@ -59,6 +90,9 @@ namespace DotnetSpider.Core.Scheduler
 			}
 		}
 
+		/// <summary>
+		/// 剩余链接数
+		/// </summary>
 		public override long LeftRequestsCount
 		{
 			get
@@ -70,46 +104,80 @@ namespace DotnetSpider.Core.Scheduler
 			}
 		}
 
-		public override long TotalRequestsCount => DuplicateRemover.TotalRequestsCount;
-
+		/// <summary>
+		/// 采集成功的链接数
+		/// </summary>
 		public override long SuccessRequestsCount => _successCounter.Value;
 
+		/// <summary>
+		/// 采集失败的次数, 不是链接数, 如果一个链接采集多次都失败会记录多次
+		/// </summary>
 		public override long ErrorRequestsCount => _errorCounter.Value;
 
+		/// <summary>
+		/// 采集成功的链接数加 1
+		/// </summary>
 		public override void IncreaseSuccessCount()
 		{
 			_successCounter.Inc();
 		}
 
+		/// <summary>
+		/// 采集失败的次数加 1
+		/// </summary>
 		public override void IncreaseErrorCount()
 		{
 			_errorCounter.Inc();
 		}
 
-		public override void Import(HashSet<Request> requests)
+		/// <summary>
+		/// 批量导入
+		/// </summary>
+		/// <param name="requests">请求对象</param>
+		public override void Reload(ICollection<Request> requests)
 		{
+			if (requests == null)
+			{
+				return;
+			}
+
 			lock (_lock)
 			{
-				_queue = new List<Request>(requests);
+				_queue.Clear();
+				foreach (var request in requests)
+				{
+					if (!DuplicateRemover.IsDuplicate(request))
+					{
+						_queue.Add(request);
+					}
+				}
 			}
 		}
 
-		public HashSet<Request> ToList()
-		{
-			lock (_lock)
-			{
-				return new HashSet<Request>(_queue.ToArray());
-			}
-		}
-
+		/// <summary>
+		/// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+		/// </summary>
 		public override void Dispose()
 		{
 			lock (_lock)
 			{
 				_queue.Clear();
 			}
-
 			base.Dispose();
+		}
+
+		/// <summary>
+		/// 取得队列中所有的请求对象
+		/// </summary>
+		internal Request[] All
+		{
+			get
+			{
+				lock (_lock)
+				{
+					return _queue.ToArray();
+				}
+			}
 		}
 	}
 }

@@ -1,8 +1,7 @@
-﻿using System.Threading;
-
-namespace DotnetSpider.Extension.Test
+﻿namespace DotnetSpider.Extension.Test
 {
-	public class TestBase
+	public abstract class TestBase
 	{
+		public virtual string DefaultConnectionString { get; } = "Database='mysql';Data Source=localhost;User ID=root;Port=3306;SslMode=None;";
 	}
 }

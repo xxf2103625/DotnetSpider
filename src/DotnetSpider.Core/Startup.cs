@@ -3,146 +3,171 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using DotnetSpider.Core.Infrastructure;
-#if NET_CORE
-using Microsoft.Extensions.DependencyModel;
-using System.Runtime.InteropServices;
+using CommandLine;
+#if NETSTANDARD
 using System.Text;
+// ReSharper disable UnusedAutoPropertyAccessor.Global
 #endif
 
 namespace DotnetSpider.Core
 {
-	[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
-	public class TaskName : Attribute
-	{
-		public string Name
-		{
-			get;
-			private set;
-		}
-
-		public TaskName(string name)
-		{
-			Name = name;
-		}
-	}
-
+	/// <summary>
+	/// 启动任务工具
+	/// </summary>
 	public static class Startup
 	{
+		public class Options
+		{
+			[Option('s', "spider", Required = true, HelpText = "Which spider you want to run.")]
+			public string Spider { get; set; }
+
+			[Option('n', "name", Required = false, HelpText = "The name of spider.")]
+			public string Name { get; set; }
+
+			[Option('t', "tid", Required = false, HelpText = "The task id of spider.")]
+			public string TaskId { get; set; }
+
+			[Option('a', "arguments", Required = false, HelpText = "The extra arguments to run spider.")]
+			public string Arguments { get; set; }
+
+			[Option('i', "identity", Required = false, HelpText = "The identity of spider.")]
+			public string Identity { get; set; }
+
+			[Option('c', "config", Required = false, HelpText = "The config file you want to use.")]
+			public string Config { get; set; }
+
+			public string[] GetArguments()
+			{
+				return string.IsNullOrEmpty(Arguments) ? new string[0] : Arguments.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+			}
+		}
+
+		/// <summary>
+		/// DLL名字中包含任意一个即是需要扫描的DLL
+		/// </summary>
 		public static List<string> DetectNames = new List<string> { "dotnetspider.sample", "crawler", "crawlers", "spider", "spiders" };
 
+		/// <summary>
+		/// 运行
+		/// </summary>
+		/// <param name="args">运行参数</param>
 		public static void Run(params string[] args)
 		{
-			SetConsoleEncoding();
-
-			PrintEnviroment(args);
-
-			Dictionary<string, string> arguments = AnalyzeArguments(args);
-
-			if (arguments == null || arguments.Count == 0)
+			var options = Parse(args);
+			if (options != null)
 			{
-				return;
-			}
+				SetEncoding();
 
-			LoadConfiguration(arguments);
+				PrintEnviroment(args);
 
-			var spiderName = arguments["-s"];
+				LoadConfiguration(options.Config);
 
-			var spiderTypes = DetectSpiders();
+				var spiderName = options.Spider;
 
-			if (spiderTypes == null || spiderTypes.Count == 0)
-			{
-				return;
-			}
+				var spiderTypes = DetectSpiders();
 
-			var spider = CreateSpiderInstance(spiderName, arguments, spiderTypes);
-			if (spider != null)
-			{
-				PrintInfo.PrintLine();
-
-				var runMethod = spiderTypes[spiderName].GetMethod("Run");
-
-				if (!arguments.ContainsKey("-a"))
+				if (spiderTypes == null || spiderTypes.Count == 0)
 				{
-					runMethod.Invoke(spider, new object[] { new string[] { } });
+					return;
+				}
+
+				var spider = CreateSpiderInstance(spiderName, options, spiderTypes);
+				if (spider != null)
+				{
+					PrintInfo.PrintLine();
+
+					var runMethod = spiderTypes[spiderName].GetMethod("Run");
+
+					if (runMethod != null) runMethod.Invoke(spider, new object[] { options.GetArguments() });
+				}
+			}
+		}
+
+
+#if NET40
+		public static Options Parse(params string[] args)
+		{
+			var arguments = new List<string>();
+
+			foreach (var arg in args)
+			{
+				if (arg.Contains(":"))
+				{
+					var array = arg.Split(':').Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToList();
+					if (array.Count == 1)
+					{
+						array.Add("");
+					}
+					arguments.AddRange(array);
 				}
 				else
 				{
-					var parameters = arguments["-a"].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-					runMethod.Invoke(spider, new object[] { parameters });
+					arguments.Add(arg);
 				}
 			}
-		}
 
-		public static void LoadConfiguration(Dictionary<string, string> arguments)
+			Parser parser = new Parser(config =>
+			{
+				config.CaseSensitive = false;
+			});
+
+			var options = new Options();
+			if (parser.ParseArguments(arguments.ToArray(), options))
+			{
+				return options;
+			}
+			return null;
+		}
+#else
+		public static Options Parse(params string[] args)
 		{
-			if (arguments.ContainsKey("-c"))
-			{
-				Env.LoadConfiguration(arguments["-c"]);
-			}
-		}
+			var arguments = new List<string>();
 
-		public static object CreateSpiderInstance(string spiderName, Dictionary<string, string> arguments, Dictionary<string, Type> spiderTypes)
+			foreach (var arg in args)
+			{
+				var array = arg.Split(':').Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToList();
+				if (array.Count == 1)
+				{
+					array.Add("");
+				}
+				arguments.AddRange(array);
+			}
+
+			Parser parser = new Parser(config =>
+			{
+				config.CaseSensitive = false;
+				config.EnableDashDash = false;
+				config.CaseInsensitiveEnumValues = false;
+			});
+
+			var result = parser.ParseArguments<Options>(arguments);
+			if (result.Tag == ParserResultType.Parsed)
+			{
+				if (result is Parsed<Options> parsed) return parsed.Value;
+			}
+			return null;
+		}
+#endif
+
+		public static void LoadConfiguration(string config)
 		{
-			if (!spiderTypes.ContainsKey(spiderName))
+			if (!string.IsNullOrWhiteSpace(config))
 			{
-				ConsoleHelper.WriteLine($"Spider: {spiderName} unfound.", ConsoleColor.DarkYellow);
-				return null;
+				Env.LoadConfiguration(config);
 			}
-			var spiderType = spiderTypes[spiderName];
-
-			var spider = Activator.CreateInstance(spiderType);
-			var spiderProperties = spiderType.GetProperties();
-
-			if (arguments.ContainsKey("-i"))
-			{
-				var identity = "guid" == arguments["-i"].ToLower() ? Guid.NewGuid().ToString("N") : arguments["-i"];
-				if (!string.IsNullOrEmpty(identity) && !string.IsNullOrWhiteSpace(identity))
-				{
-					var property = spiderProperties.First(p => p.Name == "Identity");
-					property.SetValue(spider, identity);
-				}
-			}
-
-			if (arguments.ContainsKey("-tid"))
-			{
-				var property = spiderProperties.FirstOrDefault(p => p.Name == "TaskId");
-				if (property != null)
-				{
-					var taskId = "guid" == arguments["-tid"].ToLower() ? Guid.NewGuid().ToString("N") : arguments["-tid"].Trim();
-					if (!string.IsNullOrEmpty(taskId) && !string.IsNullOrWhiteSpace(taskId))
-					{
-						property.SetValue(spider, taskId);
-					}
-				}
-			}
-
-			if (arguments.ContainsKey("-n"))
-			{
-				var property = spiderProperties.First(p => p.Name == "Name");
-				if (!string.IsNullOrEmpty(arguments["-n"]) && !string.IsNullOrWhiteSpace(arguments["-n"]))
-				{
-					property.SetValue(spider, arguments["-n"].Trim());
-				}
-			}
-
-			if (arguments.ContainsKey("-a"))
-			{
-				var parameters = arguments["-a"].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-				if (parameters.Contains("report"))
-				{
-					spiderType.GetProperty("EmptySleepTime")?.SetValue(spider, 1000);
-				}
-			}
-
-			return spider;
 		}
 
+		/// <summary>
+		/// 检测爬虫类型
+		/// </summary>
+		/// <returns></returns>
 		public static Dictionary<string, Type> DetectSpiders()
 		{
 			var spiderTypes = new Dictionary<string, Type>();
-
+			var namedType = typeof(INamed);
+			var identityType = typeof(IIdentity);
+			var irunableType = typeof(IRunable);
 			foreach (var file in DetectDlls())
 			{
 				var asm = Assembly.Load(file);
@@ -155,7 +180,7 @@ namespace DotnetSpider.Core
 					bool hasNonParametersConstructor = type.GetConstructors().Any(c => c.IsPublic && c.GetParameters().Length == 0);
 
 					var fullName = type.FullName;
-					if (string.IsNullOrEmpty(fullName))
+					if (string.IsNullOrWhiteSpace(fullName))
 					{
 						continue;
 					}
@@ -164,9 +189,9 @@ namespace DotnetSpider.Core
 					{
 						var interfaces = type.GetInterfaces();
 
-						var isNamed = interfaces.Any(t => t.FullName == "DotnetSpider.Core.INamed");
-						var isIdentity = interfaces.Any(t => t.FullName == "DotnetSpider.Core.IIdentity");
-						var isRunnable = interfaces.Any(t => t.FullName == "DotnetSpider.Core.IRunable");
+						var isNamed = interfaces.Any(t => namedType.IsAssignableFrom(t));
+						var isIdentity = interfaces.Any(t => identityType.IsAssignableFrom(t));
+						var isRunnable = interfaces.Any(t => irunableType.IsAssignableFrom(t));
 
 						if (isNamed && isRunnable && isIdentity)
 						{
@@ -180,7 +205,7 @@ namespace DotnetSpider.Core
 								return null;
 							}
 
-							var startupName = type.GetCustomAttribute<TaskName>();
+							var startupName = type.GetCustomAttributes(typeof(TaskName), true).FirstOrDefault() as TaskName;
 							if (startupName != null)
 							{
 								if (!spiderTypes.ContainsKey(startupName.Name))
@@ -209,76 +234,76 @@ namespace DotnetSpider.Core
 			return spiderTypes;
 		}
 
-		public static Dictionary<string, string> AnalyzeArguments(params string[] args)
-		{
-			Dictionary<string, string> arguments = new Dictionary<string, string>();
-			foreach (var arg in args)
-			{
-				if (string.IsNullOrEmpty(arg) || string.IsNullOrWhiteSpace(arg))
-				{
-					ConsoleHelper.WriteLine("Command: -s:[spider type name] -i:[identity] -a:[arg1,arg2...] -tid:[taskId] -n:[name] -e:[en1=value1,en2=value2,...]");
-					return null;
-				}
-
-				var results = arg.Replace(" ", "").Split(':');
-				if (results.Length == 2)
-				{
-					var key = results[0].Trim();
-					if (Regex.IsMatch(key, @"-\w+"))
-					{
-						if (arguments.ContainsKey(key))
-						{
-							arguments[key] = results[1].Trim();
-						}
-						else
-						{
-							arguments.Add(key, results[1].Trim());
-						}
-					}
-					else
-					{
-						ConsoleHelper.WriteLine("Command: -s:[spider type name] -i:[identity] -a:[arg1,arg2...] -tid:[taskId] -n:[name]");
-						return null;
-					}
-				}
-				else if (results.Length == 1)
-				{
-					var key = results[0].Trim();
-					if (Regex.IsMatch(key, @"-\w+"))
-					{
-						if (!arguments.ContainsKey(key))
-						{
-							arguments.Add(key, string.Empty);
-						}
-					}
-					else
-					{
-						ConsoleHelper.WriteLine("Command: -s:[spider type name] -i:[identity] -a:[arg1,arg2...] -tid:[taskId] -n:[name]");
-						return null;
-					}
-				}
-				else
-				{
-					Console.ForegroundColor = ConsoleColor.Red;
-					Console.WriteLine("Command: -s:[spider type name] -i:[identity] -a:[arg1,arg2...] -tid:[taskId] -n:[name]");
-					Console.ForegroundColor = ConsoleColor.White;
-					return null;
-				}
-			}
-
-			if (arguments.Count == 0 || !arguments.ContainsKey("-s") || !arguments.ContainsKey("-tid"))
-			{
-				ConsoleHelper.WriteLine("Error: -s & -tid are necessary.");
-				return null;
-			}
-
-			return arguments;
-		}
-
+		/// <summary>
+		/// 扫描所有需要求的DLL
+		/// </summary>
+		/// <returns></returns>
 		public static List<string> DetectDlls()
 		{
 			var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory);
-			return Directory.GetFiles(path).Where(f => f.EndsWith(".dll")).Select(f => Path.GetFileName(f).Replace(".dll", "")).Where(f => !f.EndsWith("DotnetSpider.HtmlAgilityPack.Css") && !f.EndsWith("DotnetSpider.Extension") && !f.EndsWith("DotnetSpider2.Extension") && !f.EndsWith("DotnetSpider.Core") && !f.EndsWith("DotnetSpider2.Core") && DetectNames.Any(n => f.ToLower().Contains(n))).ToList();
+			var files = Directory.GetFiles(path)
+				.Where(f => f.EndsWith(".dll") || f.EndsWith(".exe"))
+				.Select(f => Path.GetFileName(f).Replace(".dll", "").Replace(".exe", "")).ToList();
+			return
+				files.Where(f => !f.EndsWith("DotnetSpider.HtmlAgilityPack.Css")
+				&& !f.EndsWith("DotnetSpider.Common")
+				&& !f.EndsWith("DotnetSpider.Proxy")
+				&& !f.EndsWith("DotnetSpider.Downloader")
+				&& !f.EndsWith("DotnetSpider.Extraction")
+				&& !f.EndsWith("DotnetSpider.Extension")
+				&& !f.EndsWith("DotnetSpider.Core")
+				&& DetectNames.Any(n => f.ToLower().Contains(n))).ToList();
+		}
+
+		/// <summary>
+		/// 反射爬虫对象
+		/// </summary>
+		/// <param name="spiderName">名称</param>
+		/// <param name="options">运行参数</param>
+		/// <param name="spiderTypes">所有的爬虫类型</param>
+		/// <returns>爬虫对象</returns>
+		public static object CreateSpiderInstance(string spiderName, Options options, Dictionary<string, Type> spiderTypes)
+		{
+			if (!spiderTypes.ContainsKey(spiderName))
+			{
+				ConsoleHelper.WriteLine($"Spider: {spiderName} unfound.", ConsoleColor.DarkYellow);
+				return null;
+			}
+			var spiderType = spiderTypes[spiderName];
+
+			var spider = Activator.CreateInstance(spiderType);
+			var spiderProperties = spiderType.GetProperties();
+
+			if (!string.IsNullOrWhiteSpace(options.Identity))
+			{
+				var identity = "guid" == options.Identity.ToLower() ? Guid.NewGuid().ToString("N") : options.Identity.Trim();
+				if (!string.IsNullOrWhiteSpace(identity))
+				{
+					var property = spiderProperties.First(p => p.Name == "Identity");
+					property.SetValue(spider, identity, new object[0]);
+				}
+			}
+
+			if (!string.IsNullOrWhiteSpace(options.TaskId))
+			{
+				var property = spiderProperties.FirstOrDefault(p => p.Name == "TaskId");
+				if (property != null)
+				{
+					var taskId = "guid" == options.TaskId.ToLower() ? Guid.NewGuid().ToString("N") : options.TaskId.Trim();
+					if (!string.IsNullOrWhiteSpace(taskId))
+					{
+						property.SetValue(spider, taskId, new object[0]);
+					}
+				}
+			}
+
+			if (!string.IsNullOrWhiteSpace(options.Name))
+			{
+				var property = spiderProperties.First(p => p.Name == "Name");
+				property.SetValue(spider, options.Name.Trim(), new object[0]);
+			}
+
+			return spider;
 		}
 
 		private static void PrintEnviroment(params string[] args)
@@ -292,9 +317,9 @@ namespace DotnetSpider.Core
 			Console.WriteLine($"System           : {Environment.OSVersion} {(Environment.Is64BitOperatingSystem ? "X64" : "X86")}");
 		}
 
-		private static void SetConsoleEncoding()
+		private static void SetEncoding()
 		{
-#if NET_CORE
+#if NETSTANDARD
 			Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 #endif
 		}

@@ -1,78 +1,87 @@
-﻿using DotnetSpider.Core;
-using DotnetSpider.Core.Pipeline;
+﻿using DotnetSpider.Core.Pipeline;
+using DotnetSpider.Core.Processor;
 using DotnetSpider.Extension.Model;
 using DotnetSpider.Extension.Pipeline;
 using DotnetSpider.Extension.Processor;
-using System.Linq;
+using DotnetSpider.Extraction.Model;
 
 namespace DotnetSpider.Extension
 {
-	public abstract class EntitySpider : CommonSpider
+	/// <summary>
+	/// 实体类爬虫的定义
+	/// </summary>
+	public abstract class EntitySpider : DistributedSpider
 	{
-		public EntitySpider() : this(new Site())
+		/// <summary>
+		/// 构造方法
+		/// </summary>
+		public EntitySpider() : this(null)
 		{
 		}
 
-		public EntitySpider(Site site) : base(site)
+		/// <summary>
+		/// 构造方法
+		/// </summary>
+		/// <param name="name">名称</param>
+		/// <param name="site">目标站点信息</param>
+		public EntitySpider(string name)
 		{
+			if (!string.IsNullOrWhiteSpace(name))
+			{
+				Name = name;
+			}
 		}
 
-		public EntitySpider(string name) : base(name)
+		/// <summary>
+		/// 添加爬虫实体类
+		/// </summary>
+		/// <typeparam name="T">爬虫实体类的类型, 必须继承自 ISpiderEntity</typeparam>
+		public void AddEntityType<T>() where T : IBaseEntity
 		{
+			AddEntityType<T>(null, null);
 		}
 
-		public EntitySpider(string name, Site site) : base(name, site)
+		/// <summary>
+		/// 添加爬虫实体类
+		/// </summary>
+		/// <typeparam name="T">爬虫实体类的类型, 必须继承自 ISpiderEntity</typeparam>
+		/// <param name="dataHandler">对解析的结果进一步加工操作</param>
+		public void AddEntityType<T>(IDataHandler dataHandler) where T : IBaseEntity
 		{
+			AddEntityType<T>(null, dataHandler);
 		}
 
-		public void AddEntityType<T>(string tableName = null) where T : ISpiderEntity
+		/// <summary>
+		/// 添加爬虫实体类
+		/// </summary>
+		/// <typeparam name="T">爬虫实体类的类型, 必须继承自 ISpiderEntity</typeparam>
+		/// <param name="targetUrlsExtractor">目标链接的解析、筛选器</param>
+		public void AddEntityType<T>(ITargetRequestExtractor targetUrlsExtractor) where T : IBaseEntity
 		{
-			AddEntityType<T>(null, tableName);
+			AddEntityType<T>(targetUrlsExtractor, null);
 		}
 
-		public void AddEntityType<T>(DataHandler<T> dataHandler) where T : ISpiderEntity
-		{
-			AddEntityType(dataHandler, null);
-		}
-
-		public void AddEntityType<T>(DataHandler<T> dataHandler, string tableName) where T : ISpiderEntity
+		/// <summary>
+		/// 添加爬虫实体类
+		/// </summary>
+		/// <typeparam name="T">爬虫实体类的类型, 必须继承自 ISpiderEntity</typeparam>
+		/// <param name="targetUrlsExtractor">目标链接的解析、筛选器</param>
+		/// <param name="dataHandler">对解析的结果进一步加工操作</param>
+		public void AddEntityType<T>(ITargetRequestExtractor targetUrlsExtractor, IDataHandler dataHandler) where T : IBaseEntity
 		{
 			CheckIfRunning();
 
-			EntityProcessor<T> processor = new EntityProcessor<T>(Site, dataHandler, tableName);
-			AddPageProcessor(processor);
+			var processor = new EntityProcessor<T>(new ModelExtractor<T>(), targetUrlsExtractor, dataHandler);
+			AddPageProcessors(processor);
 		}
 
+		/// <summary>
+		/// Get the default pipeline when user forget set a pepeline to spider.
+		/// </summary>
+		/// <returns>数据管道</returns>
 		protected override IPipeline GetDefaultPipeline()
 		{
-			return BaseEntityPipeline.GetPipelineFromAppConfig();
-		}
-
-		protected override void PreInitComponent(params string[] arguments)
-		{
-			base.PreInitComponent(arguments);
-
-			if (arguments.Contains("skip"))
-			{
-				return;
-			}
-
-			var entityProcessors = PageProcessors.Where(p => p is IEntityProcessor).ToList();
-			var entityPipelines = Pipelines.Where(p => p is BaseEntityPipeline).ToList();
-
-			if (entityProcessors.Count != 0 && entityPipelines.Count == 0)
-			{
-				throw new SpiderException("You may miss a entity pipeline.");
-			}
-			foreach (var processor in entityProcessors)
-			{
-				foreach (var pipeline in entityPipelines)
-				{
-					var entityProcessor = processor as IEntityProcessor;
-					BaseEntityPipeline newPipeline = pipeline as BaseEntityPipeline;
-					newPipeline.AddEntity(entityProcessor.EntityDefine);
-				}
-			}
+			return DbEntityPipeline.GetPipelineFromAppConfig();
 		}
 	}
 }

@@ -6,7 +6,7 @@ matrix:
   include:
   - os: linux
     dist: trusty # Ubuntu 14.04
-    dotnet: 2.0.0
+    dotnet: 2.1.300
     mono: none
     env: DOTNETCORE=1
     sudo: required
@@ -16,7 +16,7 @@ matrix:
 #    mono: none
 #    env: DOTNETCORE=1
 #    before_install:
-#        - chmod a+x ./build.sh
+#        - chmod a+x ./runtests.sh
 #        - ulimit -n 1024 ;
 #        - brew update
 #        - brew install mariadb
@@ -29,10 +29,11 @@ services:
   - redis-server
 
 before_install:
-  - chmod a+x ./build.sh
+  - chmod a+x ./runtests.sh
 
 install:
   - export DOTNET_CLI_TELEMETRY_OPTOUT=1
+  - export TRAVIS=1
 
 script:
-  - ./build.sh
+  - ./runtests.sh

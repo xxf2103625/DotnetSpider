@@ -24,14 +24,8 @@
 using System;
 using System.Collections.Generic;
 
-namespace DotnetSpider.HtmlAgilityPack
+namespace DotnetSpider.HtmlAgilityPack.Css
 {
-    #region Imports
-
-	
-
-	#endregion
-
     // Adapted from Mono Rocks
 
     internal abstract class Either<TA, TB>

@@ -1,3 +1,4 @@
+using DotnetSpider.Downloader;
 using System;
 
 namespace DotnetSpider.Core.Scheduler.Component
@@ -10,8 +11,8 @@ namespace DotnetSpider.Core.Scheduler.Component
 		/// <summary>
 		/// Check whether the request is duplicate.
 		/// </summary>
-		/// <param name="request"></param>
-		/// <returns></returns>
+		/// <param name="request">Request</param>
+		/// <returns>Whether the request is duplicate.</returns>
 		bool IsDuplicate(Request request);
 
 		/// <summary>
@@ -20,9 +21,9 @@ namespace DotnetSpider.Core.Scheduler.Component
 		void ResetDuplicateCheck();
 
 		/// <summary>
-		/// Get TotalRequestsCount for monitor.
+		/// Get TotalRequestsCount.
 		/// </summary>
-		/// <returns></returns>
+		/// <returns>TotalRequestsCount</returns>
 		long TotalRequestsCount { get; }
 	}
 }

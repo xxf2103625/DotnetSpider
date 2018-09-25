@@ -1,87 +1,29 @@
-﻿using DotnetSpider.Core;
-using DotnetSpider.Core.Downloader;
-using DotnetSpider.Core.Selector;
-using DotnetSpider.Extension.Model;
-using DotnetSpider.Extension.Model.Attribute;
-using DotnetSpider.Extension.Model.Formatter;
-using System;
-using System.IO;
-using System.Net.Http;
-
-#if !NETCOREAPP2_0
+﻿using DotnetSpider.Sample.docs;
 using System.Threading;
-#else
-using System.Text;
-#endif
 
 namespace DotnetSpider.Sample
 {
-	public class Program
+	class Program
 	{
-		public static void Main(string[] args)
+		static void Main(string[] args)
 		{
-#if NETCOREAPP2_0
+#if NETCOREAPP
 			Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 #else
-			ThreadPool.SetMinThreads(200, 200);
-			OcrDemo.Process();
+			ThreadPool.SetMinThreads(256, 256);
 #endif
-			MyTest();
 
-			Startup.Run("-s:BaiduSearchSpider", "-tid:BaiduSearchSpider", "-i:guid");
 
-			Startup.Run("-s:DotnetSpider.Sample.CustomSpider1", "-tid:CustomSpider1", "-i:CustomSpider1");
-
-			Startup.Run("-s:DotnetSpider.Sample.DefaultMySqlPipelineSpider", "-tid:DefaultMySqlPipeline", "-i:guid", "-a:");
-
-			//ConfigurableSpider.Run();
-
-			// Custmize processor and pipeline 完全自定义页面解析和数据管道
-			BaseUsage.CustmizeProcessorAndPipeline();
-			Console.WriteLine("Press any key to continue...");
-			Console.Read();
-
-			// Crawler pages without traverse 采集指定页面不做遍历
-			BaseUsage.CrawlerPagesWithoutTraverse();
-			Console.WriteLine("Press any key to continue...");
-			Console.Read();
-
-			// Crawler pages traversal 遍历整站
-			BaseUsage.CrawlerPagesTraversal();
-			Console.WriteLine("Press any key to continue...");
-			Console.Read();
-
-			DDengEntitySpider dDengEntitySpider = new DDengEntitySpider();
-			dDengEntitySpider.Run();
-			Console.WriteLine("Press any key to continue...");
-			Console.Read();
-
-			Cnblogs.Run();
-			Console.WriteLine("Press any key to continue...");
-			Console.Read();
-
-			//CasSpider casSpider = new CasSpider();
-			//casSpider.Run();
-			//Console.WriteLine("Press any key to continue...");
-			//Console.Read();
-
-			BaiduSearchSpider baiduSearchSpider = new BaiduSearchSpider();
-			baiduSearchSpider.Run();
-			Console.WriteLine("Press any key to continue...");
-			Console.Read();
-
-			JdSkuSampleSpider jdSkuSampleSpider = new JdSkuSampleSpider();
-			jdSkuSampleSpider.Run();
-			Console.WriteLine("Press any key to continue...");
-			Console.Read();
-
-			Situoli.Run();
+			CrawlerWholeSiteSpider.Run();
 		}
 
 
+		/// <summary>
+		/// <c>MyTest</c> is a method in the <c>Program</c>
+		/// </summary>
 		private static void MyTest()
 		{
+
 		}
 	}
-
 }

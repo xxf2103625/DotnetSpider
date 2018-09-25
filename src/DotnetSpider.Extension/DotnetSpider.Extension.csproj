@@ -1,73 +1,45 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-  </PropertyGroup>
-  <PropertyGroup>
-    <TargetFrameworks Condition="'$(LibraryFrameworks)'==''">net45;netstandard2.0;</TargetFrameworks>
-    <TargetFrameworks Condition="'$(LibraryFrameworks)'!=''">$(LibraryFrameworks)</TargetFrameworks>
-    <Version>2.0.0</Version>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(TargetFramework)'=='net45'">
-    <AssemblyTitle>DotnetSpider</AssemblyTitle>
-    <DefineConstants>DEBUG;NET45;</DefineConstants>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(TargetFramework)'=='netstandard2.0'">
-    <AssemblyTitle>DotnetSpider</AssemblyTitle>
-    <DefineConstants>NET_CORE;$(AdditionalConstants)</DefineConstants>
-  </PropertyGroup>
-  <PropertyGroup>
-    <OutputPath>..\..\output\</OutputPath>
+    <TargetFrameworks>net451;netstandard2.0</TargetFrameworks>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
+    <Version>3.0.4</Version>
+    <Authors>zlzforever@163.com;</Authors>
+    <AssemblyName>DotnetSpider.Extension</AssemblyName>
+    <Copyright>Copyright 2018 Lewis Zou</Copyright>
+    <PackageId>DotnetSpider.Extension</PackageId>
+    <Description>A .NET Standard web crawling library similar to WebMagic and Scrapy. It is a lightweight ,efficient and fast high-level web crawling &amp;amp; scraping framework for .NET</Description>
+    <PackageTags>DotnetSpider;crawler;dotnet core</PackageTags>
+    <PackageProjectUrl>https://github.com/zlzforever/DotnetSpider</PackageProjectUrl>
     <PackageLicenseUrl>https://raw.githubusercontent.com/zlzforever/DotnetSpider/master/LICENSE</PackageLicenseUrl>
-    <PackageProjectUrl>https://github.com/dotnetcore/DotnetSpider</PackageProjectUrl>
-    <PackageIconUrl>https://raw.githubusercontent.com/dotnetcore/DotnetSpider/master/images/icon.png</PackageIconUrl>
-    <RepositoryUrl>https://github.com/dotnetcore/DotnetSpider.git</RepositoryUrl>
-    <PackageTags>DotnetSpider;crawler;cross platform;dotnet core</PackageTags>
+    <PackageIconUrl>https://github.com/zlzforever/DotnetSpider/blob/master/images/icon.png?raw=true</PackageIconUrl>
+    <RepositoryUrl>https://github.com/zlzforever/DotnetSpider</RepositoryUrl>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|net45|AnyCPU'">
-    <DebugType>portable</DebugType>
-    <DebugSymbols>true</DebugSymbols>
-  </PropertyGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
-    <PackageReference Include="Dapper" Version="1.50.2" />
-    <PackageReference Include="MongoDB.Driver" Version="2.4.4" />
-    <PackageReference Include="MySql.Data" Version="6.10.4" />
-    <PackageReference Include="StackExchange.Redis" Version="1.2.6" />
-    <PackageReference Include="SSH.NET" Version="2016.1.0" />
-    <PackageReference Include="System.Runtime.Extensions" Version="4.3.0" />
-    <PackageReference Include="NLog" Version="5.0.0-beta09" />
-    <PackageReference Include="EPPlus.Core" Version="1.5.2" />
-    <PackageReference Include="CoreCompat.Selenium.WebDriver" Version="3.4.0-beta001" />
-    <PackageReference Include="Npgsql" Version="3.2.5" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net45'">
-    <Reference Include="System.Web" />
-    <Reference Include="System.Net.Http" />
+  <ItemGroup Condition=" '$(TargetFramework)' == 'net451' ">
+    <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Management" />
-    <Reference Include="System.Configuration" />
     <PackageReference Include="Dapper" Version="1.50.2" />
-    <PackageReference Include="MongoDB.Driver" Version="2.4.4" />
-    <PackageReference Include="MySql.Data" Version="6.9.9" />
+    <PackageReference Include="MailKit" Version="2.0.5" />
     <PackageReference Include="StackExchange.Redis" Version="1.2.6" />
-    <PackageReference Include="FiddlerCore2" Version="1.0.0" />
-    <PackageReference Include="SSH.NET" Version="2016.1.0" />
     <PackageReference Include="DotRas.for.Win7" Version="1.3.0" />
-    <PackageReference Include="NLog" Version="4.4.12" />
-    <PackageReference Include="EPPlus" Version="4.1.1" />
-    <PackageReference Include="Selenium.WebDriver" Version="3.6.0" />
-    <PackageReference Include="Npgsql" Version="3.2.5" />
+    <PackageReference Include="MySqlConnector" Version="0.42.3" />
+    <PackageReference Include="MongoDB.Driver" Version="2.7.0" />
+	</ItemGroup>
+  <ItemGroup Condition=" '$(TargetFramework)' == 'netstandard2.0' ">
+    <PackageReference Include="Microsoft.CSharp" Version="4.5.0" />
+    <PackageReference Include="System.Configuration.ConfigurationManager" Version="4.5.0" />
+    <PackageReference Include="Dapper" Version="1.50.5" />
+    <PackageReference Include="MailKit" Version="2.0.5" />
+    <PackageReference Include="StackExchange.Redis" Version="1.2.6" />
+    <PackageReference Include="MySqlConnector" Version="0.42.3" />
+    <PackageReference Include="MongoDB.Driver" Version="2.7.0" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="EPPlus" Version="4.5.2.1" />
+    <PackageReference Include="Selenium.WebDriver" Version="3.13.1" />
     <ProjectReference Include="..\DotnetSpider.Core\DotnetSpider.Core.csproj" />
-    <ProjectReference Include="..\DotnetSpider.HtmlAgilityPack.Css\DotnetSpider.HtmlAgilityPack.Css.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Properties\" />
-    <Folder Include="Redial\" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="CassandraCSharpDriver" Version="3.3.2" />
-    <PackageReference Include="Npgsql" Version="3.2.5" />
-    <PackageReference Include="MailKit" Version="1.20.0" />
+    <ProjectReference Include="..\DotnetSpider.Downloader\DotnetSpider.Downloader.csproj" />
+    <ProjectReference Include="..\DotnetSpider.Extraction\DotnetSpider.Extraction.csproj" />
   </ItemGroup>
 </Project>

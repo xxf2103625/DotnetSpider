@@ -1,6 +1,5 @@
 ﻿using Dapper;
 using DotnetSpider.Core;
-using DotnetSpider.Core.Infrastructure.Database;
 using DotnetSpider.Core.Pipeline;
 using DotnetSpider.Core.Processor;
 using DotnetSpider.Core.Scheduler;
@@ -8,9 +7,9 @@ using DotnetSpider.Extension.Monitor;
 using Xunit;
 using System;
 using System.Linq;
-using System.Threading;
-using System.IO;
-using System.Threading.Tasks;
+using System.Collections.Generic;
+using MySql.Data.MySqlClient;
+using DotnetSpider.Downloader;
 
 namespace DotnetSpider.Extension.Test
 {
@@ -22,68 +21,85 @@ namespace DotnetSpider.Extension.Test
 
 	public class LogTest
 	{
-		[Fact]
+		public LogTest()
+		{
+			Env.HubService = false;
+		}
+
+		[Fact(Skip = "Dep selrilog.mysql", DisplayName = "Log_DatebaseLogAndStatus")]
 		public void DatebaseLogAndStatus()
 		{
-			Env.Reload();
 			string id = Guid.NewGuid().ToString("N");
-			string taskGroup = Guid.NewGuid().ToString("N");
-			string userId = Guid.NewGuid().ToString("N");
-
-			using (Spider spider = Spider.Create(new Site { EncodingName = "UTF-8", SleepTime = 1000 },
+			Env.NodeId = "DEFAULT";
+			using (Spider spider = Spider.Create(
 				id,
 				new QueueDuplicateRemovedScheduler(),
 				new TestPageProcessor()))
 			{
+				spider.EncodingName = "UTF-8";
+				spider.Downloader = new TestDownloader();
+				spider.TaskId = "1";
+				spider.Monitor = new MySqlMonitor(spider.TaskId, spider.Identity, false, "Database='mysql';Data Source=localhost;User ID=root;Port=3306;SslMode=None;");
 				spider.AddPipeline(new TestPipeline());
-				spider.ThreadNum = 1;
 				for (int i = 0; i < 5; i++)
 				{
-					spider.AddStartUrl("http://www.baidu.com/" + i);
+					Serilog.Log.Logger.Information("add start url" + i, id);
+					spider.AddRequests("http://www.baidu.com/" + i);
 				}
-				spider.Monitor = new DbMonitor(id);
+				spider.EmptySleepTime = 1000;
 				spider.Run();
 			}
-			Thread.Sleep(3000);
-			using (var conn = (Env.SystemConnectionStringSettings.GetDbConnection()))
+			using (var conn = new MySqlConnection("Database='mysql';Data Source=localhost;User ID=root;Port=3306;SslMode=None;"))
 			{
-				Assert.StartsWith("Crawl complete, cost", conn.Query<Log>($"SELECT * FROM DotnetSpider.Log where Identity='{id}'").Last().message);
-				Assert.Equal(1, conn.Query<CountResult>($"SELECT COUNT(*) as Count FROM DotnetSpider.Status where Identity='{id}'").First().Count);
-				Assert.Equal("Finished", conn.Query<statusObj>($"SELECT * FROM DotnetSpider.Status where Identity='{id}'").First().status);
+				var logs = conn.Query<Log>($"SELECT * FROM dotnetspider.log where identity='{id}'").ToList();
+				Assert.StartsWith("Crawl complete, cost", logs[logs.Count - 1].message);
+				Assert.Equal(1, conn.Query<CountResult>($"SELECT COUNT(*) as Count FROM dotnetspider.status where identity='{id}'").First().Count);
+				Assert.Equal("Finished", conn.Query<statusObj>($"SELECT * FROM dotnetspider.status where identity='{id}'").First().status);
 			}
 		}
 
-		class Log
+		private class TestDownloader : DotnetSpider.Downloader.Downloader
 		{
-			public string level { get; set; }
-			public string message { get; set; }
-		}
-
-		class statusObj
-		{
-			public string status { get; set; }
-		}
-
-		internal class TestPipeline : BasePipeline
-		{
-			public override void Process(params ResultItems[] resultItems)
+			protected override Response DowloadContent(Request request)
 			{
-				foreach (var resultItem in resultItems)
-				{
-					foreach (var entry in resultItem.Results)
-					{
-						Console.WriteLine($"{entry.Key}:{entry.Value}");
-					}
-				}
-			}
-		}
-
-		internal class TestPageProcessor : BasePageProcessor
-		{
-			protected override void Handle(Page page)
-			{
-				page.Skip = true;
+				Console.WriteLine("ok:" + request.Url);
+				return new Response(request) { Content = "" };
 			}
 		}
 	}
+
+	class Log
+	{
+		public string level { get; set; }
+		public string message { get; set; }
+	}
+
+	class statusObj
+	{
+		public string status { get; set; }
+	}
+
+	internal class TestPipeline : BasePipeline
+	{
+
+		public override void Process(IList<ResultItems> resultItems, dynamic sender = null)
+		{
+			foreach (var resultItem in resultItems)
+			{
+				foreach (var entry in resultItem)
+				{
+					Console.WriteLine($"{entry.Key}:{entry.Value}");
+				}
+			}
+		}
+	}
+
+	internal class TestPageProcessor : BasePageProcessor
+	{
+		protected override void Handle(Page page)
+		{
+			page.Bypass = true;
+		}
+	}
 }
+

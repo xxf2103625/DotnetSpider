@@ -1,152 +1,178 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
-using DotnetSpider.Core;
-using DotnetSpider.Core.Downloader;
 using DotnetSpider.Core.Infrastructure;
 using OpenQA.Selenium.Remote;
 using OpenQA.Selenium;
-using DotnetSpider.Core.Redial;
 using System.Runtime.InteropServices;
 using DotnetSpider.Extension.Infrastructure;
+using System.Runtime.CompilerServices;
+using System.Collections.Generic;
+using DotnetSpider.Downloader;
+using System.Net;
+using System.Collections;
+using Microsoft.Extensions.Logging;
 
 namespace DotnetSpider.Extension.Downloader
 {
-	public class WebDriverDownloader : BaseDownloader
+	/// <summary>
+	/// 使用 WebDriver 作为下载器
+	/// </summary>
+	public class WebDriverDownloader : DotnetSpider.Downloader.Downloader, IBeforeDownloadHandler
 	{
-		private readonly object _locker = new object();
-		private IWebDriver _webDriver;
-		private readonly int _webDriverWaitTime;
-		private bool _isLogined;
+		private IWebDriver _driver;
+		private readonly int _driverWaitTime;
 		private readonly Browser _browser;
 		private readonly Option _option;
 		private bool _isDisposed;
+		private readonly IEnumerable<string> _domains;
 
-		public event Action<RemoteWebDriver> NavigateCompeleted;
+		/// <summary>
+		/// 每次navigate完成后, WebDriver 需要执行的操作
+		/// </summary>
+		public List<IWebDriverAction> Actions;
 
-		public LoginHandler Login { get; set; }
-
-		public WebDriverDownloader(Browser browser, int webDriverWaitTime = 200, Option option = null)
+		/// <summary>
+		/// 构造方法
+		/// </summary>
+		/// <param name="browser">浏览器</param>
+		/// <param name="domains">被采集链接的Domain, Cookie</param>
+		/// <param name="webDriverWaitTime">请求链接完成后需要等待的时间</param>
+		/// <param name="option">选项</param>
+		public WebDriverDownloader(Browser browser, IEnumerable<string> domains = null, int webDriverWaitTime = 200,
+			Option option = null)
 		{
-			_webDriverWaitTime = webDriverWaitTime;
+			_driverWaitTime = webDriverWaitTime;
 			_browser = browser;
 			_option = option ?? new Option();
+			_domains = domains;
+			AddBeforeDownloadHandler(this);
+			AutoCloseErrorDialog();
+		}
 
-			if (browser == Browser.Firefox && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+		private void AutoCloseErrorDialog()
+		{
+#if NETFRAMEWORK
+			bool requireCloseErrorDialog = _browser == Browser.Firefox;
+#else
+			bool requireCloseErrorDialog = _browser == Browser.Firefox && RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+#endif
+			if (requireCloseErrorDialog)
 			{
 				Task.Factory.StartNew(() =>
 				{
 					while (!_isDisposed)
 					{
-						IntPtr maindHwnd = WindowsFormUtils.FindWindow(null, "plugin-container.exe - 应用程序错误");
+						IntPtr maindHwnd = WindowsFormUtil.FindWindow(null, "plugin-container.exe - 应用程序错误");
 						if (maindHwnd != IntPtr.Zero)
 						{
-							WindowsFormUtils.SendMessage(maindHwnd, WindowsFormUtils.WmClose, 0, 0);
+							WindowsFormUtil.SendMessage(maindHwnd, WindowsFormUtil.WmClose, 0, 0);
 						}
+
 						Thread.Sleep(500);
 					}
 				});
 			}
 		}
 
-		public WebDriverDownloader(Browser browser) : this(browser, 300)
+		/// <summary>
+		/// 构造方法
+		/// </summary>
+		/// <param name="browser">浏览器</param>
+		/// <param name="option">选项</param>
+		public WebDriverDownloader(Browser browser, Option option) : this(browser, null, 200, option)
 		{
 		}
 
-		public WebDriverDownloader(Browser browser, LoginHandler loginHandler) : this(browser, 200)
-		{
-			Login = loginHandler;
-		}
-
+		/// <summary>
+		/// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+		/// </summary>
 		public override void Dispose()
 		{
 			_isDisposed = true;
-			_webDriver?.Quit();
+			_driver?.Quit();
 		}
 
-		protected override Page DowloadContent(Request request, ISpider spider)
+		public override void AddCookie(System.Net.Cookie cookie)
 		{
-			Site site = spider.Site;
+			base.AddCookie(cookie);
+			// 如果 Downloader 在运行中, 需要把 Cookie 加到 Driver 中
+			_driver?.Manage().Cookies.AddCookie(new OpenQA.Selenium.Cookie(cookie.Name, cookie.Value, cookie.Domain, cookie.Path, null));
+		}
+
+		public void Handle(ref Request request, IDownloader downloader)
+		{
+			var d = downloader as WebDriverDownloader;
+			if (d != null && d._driver == null)
+			{
+				d._driver = WebDriverUtil.Open(_browser, _option);
+				d._driver.Url = request.Url;
+				Logger?.LogInformation("实例化浏览器");
+
+				foreach (var domain in _domains)
+				{
+					var cookies = GetAllCookies(CookieContainer);
+					foreach (System.Net.Cookie cookie in cookies)
+					{
+						// 此处不能通过直接调用AddCookie来添加, 会导致CookieContainer添加重复值
+						d._driver.Manage().Cookies.AddCookie(new OpenQA.Selenium.Cookie(cookie.Name, cookie.Value, cookie.Domain, cookie.Path, null));
+					}
+				}
+			}
+		}
+
+		private List<System.Net.Cookie> GetAllCookies(CookieContainer cc)
+		{
+			var lstCookies = new List<System.Net.Cookie>();
+
+			Hashtable table = (Hashtable)cc.GetType().InvokeMember("m_domainTable",
+				System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.GetField |
+				System.Reflection.BindingFlags.Instance, null, cc, new object[] { });
+
+			foreach (object pathList in table.Values)
+			{
+				SortedList lstCookieCol = (SortedList)pathList.GetType().InvokeMember("m_list",
+					System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.GetField
+					| System.Reflection.BindingFlags.Instance, null, pathList, new object[] { });
+				foreach (CookieCollection colCookies in lstCookieCol.Values)
+					foreach (System.Net.Cookie c in colCookies) lstCookies.Add(c);
+			}
+
+			return lstCookies;
+		}
+
+		[MethodImpl(MethodImplOptions.Synchronized)]
+		protected override DotnetSpider.Downloader.Response DowloadContent(Request request)
+		{
 			try
 			{
-				lock (_locker)
-				{
-					_webDriver = _webDriver ?? WebDriverExtensions.Open(_browser, _option);
-
-					if (!_isLogined && Login != null)
-					{
-						_isLogined = Login.Handle(_webDriver as RemoteWebDriver);
-						if (!_isLogined)
-						{
-							throw new DownloadException("Login failed. Please check your login codes.");
-						}
-					}
-				}
-
-				Uri uri = request.Url;
-
-				//#if NET_CORE
-				//				string query = string.IsNullOrEmpty(uri.Query) ? "" : $"?{WebUtility.UrlEncode(uri.Query.Substring(1, uri.Query.Length - 1))}";
-				//#else
-				//				string query = string.IsNullOrEmpty(uri.Query) ? "" : $"?{HttpUtility.UrlPathEncode(uri.Query.Substring(1, uri.Query.Length - 1))}";
-				//#endif
-				//				string realUrl = $"{uri.Scheme}://{uri.DnsSafeHost}{(uri.Port == 80 ? "" : ":" + uri.Port)}{uri.AbsolutePath}{query}";
-
-				var domainUrl = $"{uri.Scheme}://{uri.DnsSafeHost}{(uri.Port == 80 ? "" : ":" + uri.Port)}";
-
-				var options = _webDriver.Manage();
-				if (options.Cookies.AllCookies.Count == 0 && spider.Site.Cookies?.PairPart.Count > 0)
-				{
-					_webDriver.Url = domainUrl;
-					options.Cookies.DeleteAllCookies();
-					if (spider.Site.Cookies != null)
-					{
-						foreach (var c in spider.Site.Cookies.PairPart)
-						{
-							options.Cookies.AddCookie(new Cookie(c.Key, c.Value));
-						}
-					}
-				}
-
-				string realUrl = request.Url.ToString();
-
 				NetworkCenter.Current.Execute("webdriver-download", () =>
 				{
-					_webDriver.Navigate().GoToUrl(realUrl);
+					_driver.Navigate().GoToUrl(request.Url);
 
-					NavigateCompeleted?.Invoke((RemoteWebDriver)_webDriver);
+					if (Actions != null)
+					{
+						foreach (var action in Actions)
+						{
+							action.Invoke((RemoteWebDriver)_driver);
+						}
+					}
 				});
 
-				Thread.Sleep(_webDriverWaitTime);
+				Thread.Sleep(_driverWaitTime);
 
-				Page page = new Page(request, site.RemoveOutboundLinks ? site.Domains : null)
-				{
-					Content = _webDriver.PageSource,
-					TargetUrl = _webDriver.Url,
-					Title = _webDriver.Title
-				};
-
-				// 结束后要置空, 这个值存到Redis会导置无限循环跑单个任务
-				//request.PutExtra(Request.CycleTriedTimes, null);
-				return page;
+				var response = new DotnetSpider.Downloader.Response(request) { Content = _driver.PageSource };
+				DetectContentType(response, null);
+				return response;
 			}
-			catch (DownloadException de)
+			catch (DownloaderException)
 			{
-				Page page = new Page(request, null) { Exception = de };
-				if (site.CycleRetryTimes > 0)
-				{
-					page = Spider.AddToCycleRetry(request, site);
-				}
-				Logger.MyLog(spider.Identity, $"下载 {request.Url} 失败: {de.Message}.", NLog.LogLevel.Warn);
-				return page;
+				throw;
 			}
 			catch (Exception e)
 			{
-				Logger.MyLog(spider.Identity, $"下载 {request.Url} 失败: {e.Message}.", NLog.LogLevel.Warn);
-				Page page = new Page(request, null) { Exception = e };
-				return page;
+				throw new DownloaderException($"Unexpected exception when download request: {request.Url}: {e}.");
 			}
 		}
-
 	}
 }

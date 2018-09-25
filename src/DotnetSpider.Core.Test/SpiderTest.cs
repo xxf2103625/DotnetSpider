@@ -2,8 +2,13 @@
 using System.Threading;
 using DotnetSpider.Core.Pipeline;
 using DotnetSpider.Core.Processor;
-using DotnetSpider.Core.Scheduler;
 using Xunit;
+using System.Diagnostics;
+using System.IO;
+using System.Collections.Generic;
+using System.Linq;
+using DotnetSpider.Downloader;
+using DotnetSpider.Core.Scheduler;
 
 namespace DotnetSpider.Core.Test
 {
@@ -12,36 +17,47 @@ namespace DotnetSpider.Core.Test
 		public int Count { get; set; }
 	}
 
-	
-	public class SpiderTest
+
+	public partial class SpiderTest
 	{
-		[Fact]
+		[Fact(DisplayName = "Spider_IdentityLengthLimit")]
 		public void IdentityLengthLimit()
 		{
 			try
 			{
-				Spider.Create(new Site { EncodingName = "UTF-8", SleepTime = 1000 },
+				Spider.Create(
 					"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 					new QueueDuplicateRemovedScheduler(),
 					new TestPageProcessor());
 			}
 			catch (Exception exception)
 			{
-				Assert.Equal("Length of Identity should less than 100.", exception.Message);
+				Assert.Equal($"Length of identity should less than {Env.IdentityMaxLength}.", exception.Message);
 				return;
 			}
 
 			throw new Exception("TEST FAILED.");
 		}
 
-		[Fact]
+		[Fact(DisplayName = "DefaultConstruct")]
+		public void DefaultConstruct()
+		{
+			Spider spider = new Spider();
+		}
+
+		[Fact(DisplayName = "RunAsyncAndStop")]
 		public void RunAsyncAndStop()
 		{
-			Spider spider = Spider.Create(new Site { EncodingName = "UTF-8", SleepTime = 1000 }, new TestPageProcessor()).AddPipeline(new TestPipeline());
+			if (Environment.GetEnvironmentVariable("TRAVIS") == "1")
+			{
+				return;
+			}
+			Spider spider = Spider.Create(new TestPageProcessor()).AddPipeline(new TestPipeline());
 			spider.ThreadNum = 1;
+			spider.SleepTime = 1000;
 			for (int i = 0; i < 10000; i++)
 			{
-				spider.AddStartUrl("http://www.baidu.com/" + i);
+				spider.AddRequest(new Request("http://www.baidu.com/" + i) { EncodingName = "UTF-8" });
 			}
 			spider.RunAsync();
 			Thread.Sleep(5000);
@@ -52,14 +68,19 @@ namespace DotnetSpider.Core.Test
 			Thread.Sleep(3000);
 		}
 
-		[Fact]
+		[Fact(DisplayName = "RunAsyncAndContiune")]
 		public void RunAsyncAndContiune()
 		{
-			Spider spider = Spider.Create(new Site { EncodingName = "UTF-8", SleepTime = 1000 }, new TestPageProcessor()).AddPipeline(new TestPipeline());
+			if (Environment.GetEnvironmentVariable("TRAVIS") == "1")
+			{
+				return;
+			}
+			Spider spider = Spider.Create(new TestPageProcessor()).AddPipeline(new TestPipeline());
 			spider.ThreadNum = 1;
+			spider.EncodingName = "UTF-8";
 			for (int i = 0; i < 10000; i++)
 			{
-				spider.AddStartUrl("http://www.baidu.com/" + i);
+				spider.AddRequests("http://www.baidu.com/" + i);
 			}
 			spider.RunAsync();
 			Thread.Sleep(5000);
@@ -70,14 +91,20 @@ namespace DotnetSpider.Core.Test
 			Thread.Sleep(5000);
 		}
 
-		[Fact]
+		[Fact(DisplayName = "RunAsyncAndStopThenExit")]
 		public void RunAsyncAndStopThenExit()
 		{
-			Spider spider = Spider.Create(new Site { EncodingName = "UTF-8", SleepTime = 1000 }, new TestPageProcessor()).AddPipeline(new TestPipeline());
+			if (Environment.GetEnvironmentVariable("TRAVIS") == "1")
+			{
+				return;
+			}
+			Spider spider = Spider.Create(new TestPageProcessor()).AddPipeline(new TestPipeline());
 			spider.ThreadNum = 1;
+			spider.EncodingName = "UTF-8";
+			spider.SleepTime = 1000;
 			for (int i = 0; i < 10000; i++)
 			{
-				spider.AddStartUrl("http://www.baidu.com/" + i);
+				spider.AddRequests("http://www.baidu.com/" + i);
 			}
 			spider.RunAsync();
 			Thread.Sleep(5000);
@@ -88,40 +115,35 @@ namespace DotnetSpider.Core.Test
 			Thread.Sleep(5000);
 		}
 
-		[Fact]
-		public void ThrowExceptionWhenNoPipeline()
+		[Fact(DisplayName = "NoPipeline")]
+		public void NoPipeline()
 		{
-			try
-			{
-				Spider spider = Spider.Create(new Site { EncodingName = "UTF-8", SleepTime = 1000 }, new TestPageProcessor());
-				spider.Run();
-			}
-			catch (SpiderException exception)
-			{
-				Assert.Equal("Pipelines should not be null.", exception.Message);
-				return;
-			}
-
-			throw new Exception("TEST FAILED.");
+			Spider spider = Spider.Create(new TestPageProcessor());
+			spider.EmptySleepTime = 1000;
+			spider.EncodingName = "UTF-8";
+			spider.SleepTime = 1000;
+			spider.Run();
 		}
 
-		[Fact]
+		[Fact(DisplayName = "WhenNoStartUrl")]
 		public void WhenNoStartUrl()
 		{
-			Spider spider = Spider.Create(new Site { EncodingName = "UTF-8", SleepTime = 1000 }, new TestPageProcessor()).AddPipeline(new TestPipeline());
+			Spider spider = Spider.Create(new TestPageProcessor()).AddPipeline(new TestPipeline());
 			spider.ThreadNum = 1;
+			spider.EncodingName = "UTF-8";
+			spider.SleepTime = 1000;
 			spider.Run();
 
-			Assert.Equal(Status.Finished, spider.Stat);
+			Assert.Equal(Status.Finished, spider.Status);
 		}
 
 		internal class TestPipeline : BasePipeline
 		{
-			public override void Process(params ResultItems[] resultItems)
+			public override void Process(IList<ResultItems> resultItems, dynamic sender = null)
 			{
 				foreach (var resultItem in resultItems)
 				{
-					foreach (var entry in resultItem.Results)
+					foreach (var entry in resultItem)
 					{
 						Console.WriteLine($"{entry.Key}:{entry.Value}");
 					}
@@ -133,19 +155,122 @@ namespace DotnetSpider.Core.Test
 		{
 			protected override void Handle(Page page)
 			{
-				page.Skip = true;
+				page.Bypass = true;
 			}
 		}
 
-		[Fact]
-		public void TestRetryWhenResultIsEmpty()
+		[Fact(DisplayName = "RetryWhenResultIsEmpty")]
+		public void RetryWhenResultIsEmpty()
 		{
-			Spider spider = Spider.Create(new Site { CycleRetryTimes = 5, EncodingName = "UTF-8", SleepTime = 1000, Timeout = 20000 }, new TestPageProcessor()).AddPipeline(new TestPipeline());
+			Spider spider = Spider.Create(new TestPageProcessor()).AddPipeline(new TestPipeline());
 			spider.ThreadNum = 1;
-			spider.AddStartUrl("http://taobao.com");
+			spider.EncodingName = "UTF-8";
+			spider.CycleRetryTimes = 5;
+			spider.SleepTime = 1000;
+			spider.AddRequests("http://taobao.com");
 			spider.Run();
 
-			Assert.Equal(Status.Finished, spider.Stat);
+			Assert.Equal(Status.Finished, spider.Status);
+		}
+
+		[Fact(DisplayName = "CloseSignal")]
+		public void CloseSignal()
+		{
+			Spider spider = Spider.Create(
+				new TestPageProcessor()).AddPipeline(new TestPipeline());
+			spider.EncodingName = "UTF-8";
+			spider.CycleRetryTimes = 5;
+			spider.ClearSchedulerAfterCompleted = false;
+			for (int i = 0; i < 20; ++i)
+			{
+				spider.AddRequests($"http://www.baidu.com/t={i}");
+			}
+			var task = spider.RunAsync();
+			Thread.Sleep(500);
+			spider.SendExitSignal();
+			task.Wait();
+			Assert.Equal(10, spider.Scheduler.SuccessRequestsCount);
+
+			Spider spider2 = Spider.Create(
+				new TestPageProcessor()).AddPipeline(new TestPipeline());
+			spider2.ClearSchedulerAfterCompleted = false;
+			spider2.EncodingName = "UTF-8";
+			spider2.CycleRetryTimes = 5;
+			for (int i = 0; i < 25; ++i)
+			{
+				spider2.AddRequests($"http://www.baidu.com/t={i}");
+			}
+			spider2.Run();
+			Assert.Equal(25, spider2.Scheduler.SuccessRequestsCount);
+		}
+
+		[Fact(DisplayName = "FastExit")]
+		public void FastExit()
+		{
+			if (Environment.GetEnvironmentVariable("TRAVIS") == "1")
+			{
+				return;
+			}
+			var path = "FastExit_Result.txt";
+			if (File.Exists(path))
+			{
+				File.Delete(path);
+			}
+			Stopwatch stopwatch = new Stopwatch();
+			stopwatch.Start();
+
+			Spider spider = Spider.Create(
+				new FastExitPageProcessor())
+			.AddPipeline(new FastExitPipeline());
+			spider.ThreadNum = 1;
+			spider.EmptySleepTime = 0;
+			spider.EncodingName = "UTF-8";
+			spider.CycleRetryTimes = 5;
+			spider.SleepTime = 0;
+			spider.AddRequests("http://war.163.com/");
+			spider.AddRequests("http://sports.163.com/");
+			spider.AddRequests("http://ent.163.com/");
+			spider.Downloader = new TestDownloader();
+			spider.Run();
+			stopwatch.Stop();
+			var costTime = stopwatch.ElapsedMilliseconds;
+			Assert.True(costTime < 3000);
+			var results = File.ReadAllLines("FastExit_Result.txt");
+			Assert.Contains("http://war.163.com/", results);
+			Assert.Contains("http://sports.163.com/", results);
+			Assert.Contains("http://ent.163.com/", results);
+		}
+
+		internal class TestDownloader : DotnetSpider.Downloader.Downloader
+		{
+			protected override Response DowloadContent(Request request)
+			{
+				return new Response() { Request = request, Content = "aabbcccdefg下载人数100", TargetUrl = request.Url };
+			}
+		}
+
+		internal class FastExitPageProcessor : BasePageProcessor
+		{
+			protected override void Handle(Page page)
+			{
+				page.AddResultItem("a", "b");
+			}
+		}
+
+		internal class FileDownloader : DotnetSpider.Downloader.Downloader
+		{
+			protected override Response DowloadContent(Request request)
+			{
+				return new Response { Request = request };
+			}
+		}
+
+		internal class FastExitPipeline : BasePipeline
+		{
+			public override void Process(IList<ResultItems> resultItems, dynamic sender = null)
+			{
+				File.AppendAllLines("FastExit_Result.txt", new[] { resultItems.First().Request.Url.ToString() });
+			}
 		}
 
 		//[Fact]
@@ -154,7 +279,7 @@ namespace DotnetSpider.Core.Test
 		//	Spider spider = Spider.Create(new Site { HttpProxyPool = new HttpProxyPool(new KuaidailiProxySupplier("代理链接")), EncodingName = "UTF-8", MinSleepTime = 1000, Timeout = 20000 }, new TestPageProcessor()).AddPipeline(new TestPipeline()).SetThreadNum(1);
 		//	for (int i = 0; i < 500; i++)
 		//	{
-		//		spider.AddStartUrl("http://www.taobao.com/" + i);
+		//		spider.AddRequest("http://www.taobao.com/" + i);
 		//	}
 		//	spider.Run();
 
